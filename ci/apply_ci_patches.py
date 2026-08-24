@@ -49,6 +49,28 @@ def main() -> None:
         "enable ETC2/ASTC texture import for Android export",
     )
 
+    dynamic_city = ROOT / "scripts" / "city" / "dynamic_city_builder.gd"
+    replace_exact(
+        dynamic_city,
+        'var bus = StaticBody3D.new(); bus.name = "CityBus18"; bus.set_script(PublicTransportVehicle); root.add_child(bus); bus.setup("city_bus_18","ŞEHİR OTOBÜSÜ",bus_route,7.2,Color("486b82"))',
+        'var bus = AnimatableBody3D.new(); bus.name = "CityBus18"; bus.set_script(PublicTransportVehicle); root.add_child(bus); bus.setup("city_bus_18","ŞEHİR OTOBÜSÜ",bus_route,7.2,Color("486b82"))',
+        "instantiate city bus with the native type required by public_transport_vehicle.gd",
+    )
+    replace_exact(
+        dynamic_city,
+        'var taxi = StaticBody3D.new(); taxi.name = "CityTaxi18"; taxi.set_script(PublicTransportVehicle); root.add_child(taxi); taxi.setup("city_taxi_18","TAKSİ",taxi_route,9.0,Color("d4b649"))',
+        'var taxi = AnimatableBody3D.new(); taxi.name = "CityTaxi18"; taxi.set_script(PublicTransportVehicle); root.add_child(taxi); taxi.setup("city_taxi_18","TAKSİ",taxi_route,9.0,Color("d4b649"))',
+        "instantiate city taxi with the native type required by public_transport_vehicle.gd",
+    )
+
+    crime_city = ROOT / "scripts" / "city" / "crime_justice_builder.gd"
+    replace_exact(
+        crime_city,
+        '\tpatrol.setup([Vector3(-58,0.05,62),Vector3(-5,0.05,62),Vector3(-5,0.05,35),Vector3(-58,0.05,35)])',
+        '\tvar patrol_route: Array[Vector3] = [Vector3(-58,0.05,62),Vector3(-5,0.05,62),Vector3(-5,0.05,35),Vector3(-58,0.05,35)]\n\tpatrol.setup(patrol_route)',
+        "pass a typed Vector3 route to patrol_vehicle.gd",
+    )
+
     print("CI patch layer complete.")
 
 
