@@ -1,0 +1,163 @@
+name: CUMA WORLD Visual Audit
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+      - 'ci/apply_ci_patches.py'
+      - 'ci/runtime_contract_check.py'
+      - 'ci/visual_capture.gd'
+      - 'ci/visual_capture.tscn'
+      - '.github/workflows/visual-audit.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: cuma-world-visual-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  visual-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -s "$SOURCE_ZIP"
+          unzip -tq "$SOURCE_ZIP"
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          test -f game/project.godot
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply production source patches
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/apply_ci_patches.py
+
+      - name: Install Godot 4.7.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot"
+          GODOT_ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          MAIN_BASE="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          BUILDS_BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}"
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$GODOT_ASSET" -o /tmp/godot.zip \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$GODOT_ASSET" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+          "$GODOT_BIN" --version
+
+      - name: Import project assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path game --editor --quit 2>&1 | tee /tmp/visual-import.log
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/visual-import.log; then
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/visual-import.log || true
+            exit 1
+          fi
+
+      - name: Prepare software rendering
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+          command -v xvfb-run
+
+      - name: Capture production views
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ../ci/visual_capture.gd ./ci_visual_capture.gd
+          cp ../ci/visual_capture.tscn ./ci_visual_capture.tscn
+          mkdir -p build
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_visual_capture.tscn 2>&1 | tee /tmp/visual-capture.log
+          grep -q 'CUMA_VISUAL_AUDIT_READY' /tmp/visual-capture.log
+          test -s build/visual_corridor.png
+          test -s build/visual_living_room.png
+          test -s build/visual_kitchen.png
+          test -s build/visual_bedroom.png
+          rm -f ci_visual_capture.gd ci_visual_capture.tscn
+
+      - name: Upload visual audit artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-visual-audit
+          path: game/build/visual_*.png
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Report visual audit success
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Visual audit ready #${GITHUB_RUN_NUMBER}" \
+            --body "Rendered corridor/living room/kitchen/bedroom audit images are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
+
+      - name: Upload visual diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-visual-diagnostics-${{ github.run_number }}
+          path: |
+            /tmp/visual-import.log
+            /tmp/visual-capture.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report visual audit failure
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## CUMA WORLD visual audit failed'
+            echo
+            echo "Run: $GITHUB_RUN_ID"
+            echo "Commit: $GITHUB_SHA"
+            echo
+            echo '```text'
+            tail -n 160 /tmp/visual-capture.log 2>/dev/null || tail -n 160 /tmp/visual-import.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/visual-failure.md
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Visual audit failed #${GITHUB_RUN_NUMBER}" \
+            --body-file /tmp/visual-failure.md
