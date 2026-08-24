@@ -17,6 +17,7 @@ def main() -> None:
 
     dynamic = (ROOT / "scripts/city/dynamic_city_builder.gd").read_text(encoding="utf-8")
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
+    main_script = (ROOT / "scripts/main.gd").read_text(encoding="utf-8")
 
     if 'var bus = AnimatableBody3D.new(); bus.name = "CityBus18"' not in dynamic:
         fail("CityBus18 must be instantiated as AnimatableBody3D")
@@ -26,6 +27,51 @@ def main() -> None:
         fail("police patrol route must remain Array[Vector3]")
     if re.search(r"\bpatrol\.setup\(\s*\[", crime):
         fail("do not pass an untyped array literal directly to patrol_vehicle.setup")
+
+    try:
+        ready_body = main_script.split("func _ready() -> void:\n", 1)[1].split("\nfunc ", 1)[0]
+    except IndexError:
+        fail("could not isolate main.gd _ready()")
+
+    if ready_body.count("await get_tree().process_frame") < 4:
+        fail("main.gd startup builders must be distributed across at least 4 frame boundaries")
+
+    required_ready_calls = [
+        "_build_lighting()",
+        "_build_world_ground()",
+        "_build_house_shell()",
+        "_build_room_layout()",
+        "_build_furniture()",
+        "_build_balcony()",
+        "_build_windows_and_city()",
+        "_build_street_v03()",
+        "_build_interactions_v03()",
+        "_build_together_spaces()",
+        "_build_realism_overhaul()",
+        "_build_ultra_home_07()",
+        "_build_production_home_21()",
+        "_build_living_city_08()",
+        "_build_production_city_polish_21()",
+        "_build_online_life_09()",
+        "_build_full_life_10()",
+        "_build_online_relay_11()",
+        "_build_physical_ai_14()",
+        "_build_human_behavior_15()",
+        "_build_social_life_12()",
+        "_build_npc_intelligence_13()",
+        "_build_daily_life_16()",
+        "_build_city_society_17()",
+        "_build_dynamic_city_18()",
+        "_build_crime_justice_19()",
+        "_build_runtime_systems()",
+        "_build_weather_09()",
+        "_spawn_player()",
+        "_connect_network()",
+        "_spawn_mobile_controls()",
+    ]
+    missing = [call for call in required_ready_calls if call not in ready_body]
+    if missing:
+        fail("staged startup lost required calls: " + ", ".join(missing))
 
     # Best-effort check for same-line native-node/script mismatches.
     bases: dict[str, str] = {}
