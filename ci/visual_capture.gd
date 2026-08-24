@@ -17,6 +17,9 @@ func _ready() -> void:
 	for i in range(140):
 		await get_tree().process_frame
 
+	# Audit images must show the production art itself, not gameplay HUD/debug labels.
+	_hide_audit_ui(world_scene)
+
 	audit_camera = Camera3D.new()
 	audit_camera.name = "ProductionVisualAuditCamera"
 	audit_camera.fov = 66.0
@@ -54,6 +57,7 @@ func _ready() -> void:
 func _capture_view(view_name: String, camera_pos: Vector3, target: Vector3) -> void:
 	audit_camera.global_position = camera_pos
 	audit_camera.look_at(target, Vector3.UP)
+	_log_nearby_geometry(view_name, camera_pos, 8.0)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	await RenderingServer.frame_post_draw
@@ -75,6 +79,59 @@ func _capture_view(view_name: String, camera_pos: Vector3, target: Vector3) -> v
 		_fail("Could not save " + output_path + ": " + str(save_error))
 		return
 	print("CUMA_VISUAL_CAPTURE ", view_name, " -> ", output_path)
+
+func _hide_audit_ui(node: Node) -> void:
+	if node is CanvasLayer:
+		(node as CanvasLayer).visible = false
+	elif node is Control:
+		(node as Control).visible = false
+	elif node is Label3D:
+		(node as Label3D).visible = false
+	for child in node.get_children():
+		_hide_audit_ui(child)
+
+func _log_nearby_geometry(view_name: String, center: Vector3, radius: float) -> void:
+	var entries: Array[Dictionary] = []
+	_collect_nearby_meshes(world_scene, center, radius, entries)
+	entries.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return float(a.get("volume", 0.0)) > float(b.get("volume", 0.0))
+	)
+	print("CUMA_VISUAL_GEOMETRY_BEGIN ", view_name)
+	for i in range(min(entries.size(), 28)):
+		var entry: Dictionary = entries[i]
+		print(
+			"CUMA_VISUAL_GEOMETRY ", view_name,
+			" path=", entry.get("path", ""),
+			" pos=", entry.get("pos", Vector3.ZERO),
+			" size=", entry.get("size", Vector3.ZERO),
+			" dist=", "%.2f" % float(entry.get("distance", 0.0))
+		)
+	print("CUMA_VISUAL_GEOMETRY_END ", view_name)
+
+func _collect_nearby_meshes(node: Node, center: Vector3, radius: float, entries: Array[Dictionary]) -> void:
+	if node is MeshInstance3D:
+		var mesh_instance = node as MeshInstance3D
+		if mesh_instance.visible and mesh_instance.mesh != null:
+			var distance = mesh_instance.global_position.distance_to(center)
+			if distance <= radius:
+				var local_size = mesh_instance.get_aabb().size
+				var scale_value = mesh_instance.global_transform.basis.get_scale()
+				var world_size = Vector3(
+					abs(local_size.x * scale_value.x),
+					abs(local_size.y * scale_value.y),
+					abs(local_size.z * scale_value.z)
+				)
+				var max_extent = max(world_size.x, max(world_size.y, world_size.z))
+				if max_extent >= 0.70:
+					entries.append({
+						"path": str(mesh_instance.get_path()),
+						"pos": mesh_instance.global_position,
+						"size": world_size,
+						"distance": distance,
+						"volume": world_size.x * world_size.y * world_size.z,
+					})
+	for child in node.get_children():
+		_collect_nearby_meshes(child, center, radius, entries)
 
 func _fail(message: String) -> void:
 	capture_failed = true
