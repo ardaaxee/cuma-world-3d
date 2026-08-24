@@ -7,7 +7,7 @@ on:
     paths:
       - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
       - '.github/workflows/build-android-apk.yml'
-      - 'ci/apply_ci_patches.py'
+      - 'ci/**'
 
 permissions:
   contents: read
