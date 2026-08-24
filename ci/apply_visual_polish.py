@@ -24,6 +24,67 @@ def main() -> None:
 
     main_script = ROOT / "scripts" / "main.gd"
     production_home = ROOT / "scripts" / "world" / "production_home_builder.gd"
+    public_transport = ROOT / "scripts" / "city" / "public_transport_vehicle.gd"
+    patrol_vehicle = ROOT / "scripts" / "crime" / "patrol_vehicle.gd"
+
+    # Visual Audit exposed a world-runtime defect: AnimatableBody3D vehicles were
+    # being moved from idle _process() while sync_to_physics stayed enabled. Godot's
+    # physics synchronization restored their transforms to the body origin, leaving
+    # bus, taxi and patrol car stacked inside the house at (0, 0, 0). Keep manual
+    # movement physics-ticked and opt these procedural vehicles out of transform sync.
+    replace_exact(
+        public_transport,
+        '''func setup(id_value: String, title: String, points: Array[Vector3], speed_value: float, body_color: Color) -> void:
+\tvehicle_id = id_value.strip_edges().left(48)''',
+        '''func setup(id_value: String, title: String, points: Array[Vector3], speed_value: float, body_color: Color) -> void:
+\tsync_to_physics = false
+\tset_physics_process(true)
+\tvehicle_id = id_value.strip_edges().left(48)''',
+        "disable AnimatableBody3D transform resync for public transport",
+    )
+    replace_exact(
+        public_transport,
+        'func _process(delta: float) -> void:',
+        'func _physics_process(delta: float) -> void:',
+        "simulate public transport on physics ticks",
+    )
+    replace_exact(
+        public_transport,
+        '''func set_simulation_enabled(enabled: bool) -> void:
+\tvisible = enabled
+\tset_process(enabled)''',
+        '''func set_simulation_enabled(enabled: bool) -> void:
+\tvisible = enabled
+\tset_physics_process(enabled)''',
+        "toggle public transport physics simulation with quality state",
+    )
+
+    replace_exact(
+        patrol_vehicle,
+        '''func setup(points: Array[Vector3]) -> void:
+\troute = points.duplicate()''',
+        '''func setup(points: Array[Vector3]) -> void:
+\tsync_to_physics = false
+\tset_physics_process(true)
+\troute = points.duplicate()''',
+        "disable AnimatableBody3D transform resync for police patrol",
+    )
+    replace_exact(
+        patrol_vehicle,
+        'func _process(delta: float) -> void:',
+        'func _physics_process(delta: float) -> void:',
+        "simulate police patrol on physics ticks",
+    )
+    replace_exact(
+        patrol_vehicle,
+        '''func set_simulation_enabled(enabled: bool) -> void:
+\tvisible = enabled
+\tset_process(enabled)''',
+        '''func set_simulation_enabled(enabled: bool) -> void:
+\tvisible = enabled
+\tset_physics_process(enabled)''',
+        "toggle police patrol physics simulation with quality state",
+    )
 
     # Corridor cleanup: the original prototype bench/board/decor collider placement
     # left gameplay geometry in the middle of the hallway even after its meshes were hidden.
