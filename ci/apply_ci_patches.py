@@ -185,6 +185,94 @@ def main() -> None:
         "stage heavy world initialization across multiple frames",
     )
 
+    # Production visual ownership: UltraHome07 is now interaction/detail-only for
+    # rooms that ProductionHome21 fully replaces. This eliminates duplicate rugs,
+    # beds, bathroom slabs, balcony deck and ceiling fixtures at identical coords.
+    ultra_home = ROOT / "scripts" / "world" / "ultra_home_builder.gd"
+    replace_exact(
+        ultra_home,
+        '''\t_load_textures()
+\t_build_entry()
+\t_build_living_room_layer()
+\t_build_kitchen_layer()
+\t_build_bathroom_layer()
+\t_build_bedroom_layer()
+\t_build_balcony_layer()
+\t_build_ceiling_and_lighting()
+\t_build_curtains()
+\t_build_micro_details()''',
+        '''\t_load_textures()
+\t# ProductionHome21 owns the static room art direction. UltraHome07 remains
+\t# responsible for interactive kitchen cabinets, synced curtains and small props.
+\t_build_kitchen_layer()
+\t_build_curtains()
+\t_build_micro_details()''',
+        "make UltraHome07 an interaction/detail layer instead of duplicate room renderer",
+    )
+
+    production_home = ROOT / "scripts" / "world" / "production_home_builder.gd"
+    replace_exact(
+        production_home,
+        '''\t_build_materials()
+\t_hide_legacy_visuals()
+\t_apply_architecture_materials()''',
+        '''\t_build_materials()
+\t_hide_legacy_visuals()
+\t_hide_superseded_home_overlays()
+\t_apply_architecture_materials()''',
+        "hide superseded realism interior meshes before ProductionHome21 draws replacements",
+    )
+
+    replace_exact(
+        production_home,
+        '''func _hide_mesh_children(node: Node) -> void:
+\tfor child in node.get_children():
+\t\tif child is MeshInstance3D:
+\t\t\tchild.visible = false
+\t\t_hide_mesh_children(child)
+
+func _apply_architecture_materials() -> void:''',
+        '''func _hide_mesh_children(node: Node) -> void:
+\tfor child in node.get_children():
+\t\tif child is MeshInstance3D:
+\t\t\tchild.visible = false
+\t\t_hide_mesh_children(child)
+
+func _hide_superseded_home_overlays() -> void:
+\t# RealismOverhaul still owns outdoor neighborhood/park ambience, but its old
+\t# interior furniture must not render underneath ProductionHome21 replacements.
+\tvar realism = world.get_node_or_null("RealismOverhaul")
+\tif realism == null:
+\t\treturn
+\tfor child in realism.get_children():
+\t\tif child is MeshInstance3D:
+\t\t\tvar mesh_child = child as MeshInstance3D
+\t\t\tif _is_production_home_zone(mesh_child.position):
+\t\t\t\tmesh_child.visible = false
+
+func _is_production_home_zone(pos: Vector3) -> bool:
+\t# Keep outer window/frame details at z ~= +/-8.9 and keep all city meshes.
+\tif abs(pos.x) <= 2.15 and pos.z >= -8.60 and pos.z <= 8.65:
+\t\treturn true # corridor / doors
+\tif pos.x >= -11.40 and pos.x <= -3.70 and pos.z >= -8.60 and pos.z <= 7.70:
+\t\treturn true # left bedrooms + living room
+\tif pos.x >= 3.40 and pos.x <= 11.40 and pos.z >= -8.60 and pos.z <= 8.65:
+\t\treturn true # right bedrooms + kitchen + bathroom
+\tif pos.x >= -11.40 and pos.x <= -1.40 and pos.z >= 9.20 and pos.z <= 13.60:
+\t\treturn true # balcony
+\treturn false
+
+func _apply_architecture_materials() -> void:''',
+        "add spatial ownership filter for superseded RealismOverhaul home visuals",
+    )
+
+    replace_exact(
+        production_home,
+        '\t_panel(Vector3(2.85, 0.11, 1.18), Vector3(6.30, 0.99, 4.95), stone)',
+        '\t# Island slab stays in UltraHome07 because its interactive cabinet layer is retained.',
+        "remove overlapping ProductionHome21 kitchen island slab",
+    )
+
     checker = Path(__file__).with_name("runtime_contract_check.py")
     subprocess.run([sys.executable, str(checker)], check=True)
     print("CI patch layer complete.")
