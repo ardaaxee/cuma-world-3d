@@ -26,6 +26,7 @@ def main() -> None:
 
     # Android build and Visual Audit share the exact same deterministic patch stack.
     layers = [
+        Path(__file__).with_name("apply_runtime_round2.py"),
         Path(__file__).with_name("apply_visual_polish.py"),
         Path(__file__).with_name("apply_visual_finish.py"),
         Path(__file__).with_name("apply_visual_round3.py"),
@@ -40,6 +41,7 @@ def main() -> None:
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
     transport = (ROOT / "scripts/city/public_transport_vehicle.gd").read_text(encoding="utf-8")
     patrol = (ROOT / "scripts/crime/patrol_vehicle.gd").read_text(encoding="utf-8")
+    relationship = (ROOT / "scripts/social/relationship_citizen.gd").read_text(encoding="utf-8")
     main_script = (ROOT / "scripts/main.gd").read_text(encoding="utf-8")
     ultra_home = (ROOT / "scripts/world/ultra_home_builder.gd").read_text(encoding="utf-8")
     production_home = (ROOT / "scripts/world/production_home_builder.gd").read_text(encoding="utf-8")
@@ -62,6 +64,11 @@ def main() -> None:
             fail(f"{label} quality toggle must control physics processing")
         if "func _process(delta: float) -> void:" in source:
             fail(f"{label} still contains idle-frame movement")
+
+    if 'active_route = [entry, ai_target] if' in relationship:
+        fail("relationship NPC AI still assigns an untyped conditional Array to Array[Vector3]")
+    if 'active_route.clear()' not in relationship or 'active_route.append(ai_target)' not in relationship:
+        fail("relationship NPC typed-route runtime fix is missing")
 
     try:
         ready_body = main_script.split("func _ready() -> void:\n", 1)[1].split("\nfunc ", 1)[0]
