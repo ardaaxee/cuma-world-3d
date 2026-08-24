@@ -28,12 +28,11 @@ def main() -> None:
     # this checker, so every production run receives the same audited patch stack.
     visual_polish = Path(__file__).with_name("apply_visual_polish.py")
     visual_finish = Path(__file__).with_name("apply_visual_finish.py")
-    if not visual_polish.is_file():
-        fail("missing ci/apply_visual_polish.py")
-    if not visual_finish.is_file():
-        fail("missing ci/apply_visual_finish.py")
-    subprocess.run([sys.executable, str(visual_polish)], check=True)
-    subprocess.run([sys.executable, str(visual_finish)], check=True)
+    visual_round3 = Path(__file__).with_name("apply_visual_round3.py")
+    for layer in [visual_polish, visual_finish, visual_round3]:
+        if not layer.is_file():
+            fail(f"missing {layer.relative_to(Path(__file__).resolve().parents[1])}")
+        subprocess.run([sys.executable, str(layer)], check=True)
 
     dynamic = (ROOT / "scripts/city/dynamic_city_builder.gd").read_text(encoding="utf-8")
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
@@ -149,8 +148,21 @@ def main() -> None:
         fail("living-room dusk fill light is missing")
     if 'Color("4b5057")' not in production_home:
         fail("dark upholstery floor correction is missing")
-    if 'Vector3(2.45,0.08,0.98)' not in ultra_home:
-        fail("kitchen island clearance correction is missing")
+
+    # Visual Audit #7 round-3 contracts: narrower furniture/circulation, softer
+    # corridor lights and broad curtain cloth rather than capsule bars.
+    if 'fixture.material_override = _emissive(Color("ffe2bd"), 0.82)' not in production_home:
+        fail("round3 corridor fixture intensity is missing")
+    if 'Vector3(2.50, 0.18, 3.38)' not in production_home:
+        fail("round3 bedroom frame scaling is missing")
+    if 'bedroom_light.light_energy = 0.66' not in production_home:
+        fail("round3 bedroom fill correction is missing")
+    if 'Vector3(2.16,0.08,0.82)' not in ultra_home:
+        fail("round3 kitchen island clearance correction is missing")
+    if 'Vector3(width * 0.46, height, 0.035)' not in ultra_home:
+        fail("round3 curtain cloth panel correction is missing")
+    if 'for i in range(11):' in function_body(ultra_home, "_make_interactive_curtain"):
+        fail("old bar-like curtain fold loop survived round3")
 
     # Best-effort check for same-line native-node/script mismatches.
     bases: dict[str, str] = {}
