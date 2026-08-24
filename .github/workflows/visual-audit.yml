@@ -6,12 +6,7 @@ on:
     branches: [ main ]
     paths:
       - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
-      - 'ci/apply_ci_patches.py'
-      - 'ci/runtime_contract_check.py'
-      - 'ci/apply_visual_polish.py'
-      - 'ci/apply_visual_finish.py'
-      - 'ci/visual_capture.gd'
-      - 'ci/visual_capture.tscn'
+      - 'ci/**'
       - '.github/workflows/visual-audit.yml'
 
 permissions:
@@ -94,7 +89,7 @@ jobs:
           fi
           command -v xvfb-run
 
-      - name: Capture production views
+      - name: Capture production home views
         working-directory: game
         shell: bash
         run: |
@@ -113,6 +108,25 @@ jobs:
           test -s build/visual_bedroom.png
           rm -f ci_visual_capture.gd ci_visual_capture.tscn
 
+      - name: Audit rigged character in Godot
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ../ci/character_capture.gd ./ci_character_capture.gd
+          cp ../ci/character_capture.tscn ./ci_character_capture.tscn
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_character_capture.tscn 2>&1 | tee /tmp/character-capture.log
+          grep -q 'CUMA_CHARACTER_AUDIT_READY' /tmp/character-capture.log
+          grep -q 'CUMA_CHARACTER_NATIVE_BOUNDS' /tmp/character-capture.log
+          grep -q 'CUMA_CHARACTER_GODOT_ANIMATIONS' /tmp/character-capture.log
+          grep -q 'CUMA_CHARACTER_RECOMMENDED_SCALE' /tmp/character-capture.log
+          test -s build/visual_character_idle.png
+          test -s build/visual_character_walk.png
+          rm -f ci_character_capture.gd ci_character_capture.tscn
+
       - name: Upload visual audit artifact
         uses: actions/upload-artifact@v4
         with:
@@ -130,7 +144,7 @@ jobs:
           gh issue create \
             --repo "$GITHUB_REPOSITORY" \
             --title "Visual audit ready #${GITHUB_RUN_NUMBER}" \
-            --body "Rendered corridor/living room/kitchen/bedroom audit images are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
+            --body "Rendered corridor/living room/kitchen/bedroom plus rigged character Idle/Walk audit images are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
 
       - name: Upload visual diagnostics
         if: always()
@@ -140,6 +154,7 @@ jobs:
           path: |
             /tmp/visual-import.log
             /tmp/visual-capture.log
+            /tmp/character-capture.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -156,7 +171,7 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo
             echo '```text'
-            tail -n 160 /tmp/visual-capture.log 2>/dev/null || tail -n 160 /tmp/visual-import.log 2>/dev/null || true
+            tail -n 160 /tmp/character-capture.log 2>/dev/null || tail -n 160 /tmp/visual-capture.log 2>/dev/null || tail -n 160 /tmp/visual-import.log 2>/dev/null || true
             echo '```'
           } > /tmp/visual-failure.md
           gh issue create \
