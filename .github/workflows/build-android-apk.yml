@@ -1,0 +1,169 @@
+name: Build CUMA WORLD Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+      - '.github/workflows/build-android-apk.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cuma-world-android-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  TEMPLATE_VERSION: '4.7.2.stable'
+  PRESET: 'Android Debug ARM64'
+  APK_PATH: 'build/CUMA_WORLD_3D-debug-arm64.apk'
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify source ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          test -s "$SOURCE_ZIP"
+          ls -lh "$SOURCE_ZIP"
+
+      - name: Extract Godot project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          test -f game/project.godot
+          test -f game/export_presets.cfg
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+            'platform-tools' \
+            'build-tools;35.0.1' \
+            'platforms;android-35' \
+            'cmdline-tools;latest' \
+            'cmake;3.10.2.4988404' \
+            'ndk;28.1.13356709'
+
+      - name: Install Godot 4.7.2 and export templates
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot" "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION"
+          curl -fL --retry 4 --retry-delay 2 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+            -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+
+          curl -fL --retry 4 --retry-delay 2 \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" \
+            -o /tmp/templates.tpz
+          rm -rf /tmp/godot-templates
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/templates.tpz -d /tmp/godot-templates
+          cp -a /tmp/godot-templates/templates/. "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION/"
+          "$GODOT_BIN" --version
+
+      - name: Configure Android export
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Android Debug,O=CUMA WORLD,C=TR'
+          fi
+
+          cat > "$HOME/.config/godot/editor_settings-4.7.tres" <<SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          SETTINGS
+
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+
+      - name: Run regression tests
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python scripts/ci_apk_preflight.py
+          for test_file in tests/*.py; do
+            echo "==> $test_file"
+            python "$test_file"
+          done
+
+      - name: Godot parser and import check
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path . --editor --quit --verbose 2>&1 | tee /tmp/godot-import.log
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/godot-import.log; then
+            echo 'Godot parser/import errors detected.'
+            exit 1
+          fi
+
+      - name: Export debug ARM64 APK
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p build
+          "$GODOT_BIN" --headless --path . --export-debug "$PRESET" "$APK_PATH" 2>&1 | tee /tmp/godot-export.log
+          test -s "$APK_PATH"
+          sha256sum "$APK_PATH" > "$APK_PATH.sha256"
+          ls -lh "$APK_PATH" "$APK_PATH.sha256"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-3D-Android-Debug-ARM64
+          path: |
+            game/build/CUMA_WORLD_3D-debug-arm64.apk
+            game/build/CUMA_WORLD_3D-debug-arm64.apk.sha256
+          if-no-files-found: error
+          retention-days: 14
