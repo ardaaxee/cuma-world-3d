@@ -24,16 +24,21 @@ def main() -> None:
     if not ROOT.is_dir():
         fail(f"missing extracted game directory: {ROOT}")
 
-    # Keep production visual fixes in one small, auditable layer. Both Android
-    # build and Visual Audit enter through apply_ci_patches.py -> this checker,
-    # so they receive exactly the same visual source state.
+    # Both Android build and Visual Audit enter through apply_ci_patches.py ->
+    # this checker, so every production run receives the same audited patch stack.
     visual_polish = Path(__file__).with_name("apply_visual_polish.py")
+    visual_finish = Path(__file__).with_name("apply_visual_finish.py")
     if not visual_polish.is_file():
         fail("missing ci/apply_visual_polish.py")
+    if not visual_finish.is_file():
+        fail("missing ci/apply_visual_finish.py")
     subprocess.run([sys.executable, str(visual_polish)], check=True)
+    subprocess.run([sys.executable, str(visual_finish)], check=True)
 
     dynamic = (ROOT / "scripts/city/dynamic_city_builder.gd").read_text(encoding="utf-8")
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
+    transport = (ROOT / "scripts/city/public_transport_vehicle.gd").read_text(encoding="utf-8")
+    patrol = (ROOT / "scripts/crime/patrol_vehicle.gd").read_text(encoding="utf-8")
     main_script = (ROOT / "scripts/main.gd").read_text(encoding="utf-8")
     ultra_home = (ROOT / "scripts/world/ultra_home_builder.gd").read_text(encoding="utf-8")
     production_home = (ROOT / "scripts/world/production_home_builder.gd").read_text(encoding="utf-8")
@@ -46,6 +51,17 @@ def main() -> None:
         fail("police patrol route must remain Array[Vector3]")
     if re.search(r"\bpatrol\.setup\(\s*\[", crime):
         fail("do not pass an untyped array literal directly to patrol_vehicle.setup")
+
+    # Animatable procedural vehicles must move on physics ticks with sync disabled.
+    for label, source in [("public transport", transport), ("police patrol", patrol)]:
+        if "sync_to_physics = false" not in source:
+            fail(f"{label} must disable AnimatableBody3D sync_to_physics")
+        if "func _physics_process(delta: float) -> void:" not in source:
+            fail(f"{label} movement must run in _physics_process")
+        if "set_physics_process(enabled)" not in source:
+            fail(f"{label} quality toggle must control physics processing")
+        if "func _process(delta: float) -> void:" in source:
+            fail(f"{label} still contains idle-frame movement")
 
     try:
         ready_body = main_script.split("func _ready() -> void:\n", 1)[1].split("\nfunc ", 1)[0]
@@ -116,7 +132,7 @@ def main() -> None:
     if "func _is_production_home_zone(pos: Vector3) -> bool:" not in production_home:
         fail("ProductionHome21 missing replacement-zone ownership helper")
 
-    # Visual-polish contracts found by the first real render audit.
+    # Visual-polish contracts discovered from real rendered screenshots.
     if 'Vector3(-0.75, 0.24, 6.85)' not in main_script:
         fail("legacy hall bench collider must align with the production entry bench")
     if 'board.position = Vector3(-1.62, 1.42, 3.85)' not in main_script or 'board.rotation_degrees.y = 90.0' not in main_script:
@@ -125,10 +141,16 @@ def main() -> None:
         fail("DecorStation must remain wall-mounted instead of blocking the corridor")
     if 'Bedroom-local fill lights fix the dusk audit' not in production_home:
         fail("production bedroom local fill lights are missing")
-    if 'giant oval blob' not in production_home:
-        fail("production bed proportion correction is missing")
-    if 'tube/sausage silhouette' not in production_home:
-        fail("production sofa silhouette correction is missing")
+    if 'Layered bedding reads as a duvet' not in production_home:
+        fail("layered production bedding correction is missing")
+    if 'Production sofa uses restrained upholstered slabs' not in production_home:
+        fail("production sofa panel correction is missing")
+    if 'Living-room fill preserves fabric/wood separation' not in production_home:
+        fail("living-room dusk fill light is missing")
+    if 'Color("4b5057")' not in production_home:
+        fail("dark upholstery floor correction is missing")
+    if 'Vector3(2.45,0.08,0.98)' not in ultra_home:
+        fail("kitchen island clearance correction is missing")
 
     # Best-effort check for same-line native-node/script mismatches.
     bases: dict[str, str] = {}
