@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import hashlib
+import json
 import shutil
 import urllib.request
 
@@ -22,7 +23,20 @@ def git_blob_sha1(data: bytes) -> str:
     return hashlib.sha1(header + data).hexdigest()
 
 
-def validate_glb(data: bytes) -> None:
+def animation_names(data: bytes) -> list[str]:
+    offset = 12
+    while offset + 8 <= len(data):
+        chunk_length = int.from_bytes(data[offset : offset + 4], "little")
+        chunk_type = data[offset + 4 : offset + 8]
+        payload = data[offset + 8 : offset + 8 + chunk_length]
+        if chunk_type == b"JSON":
+            document = json.loads(payload.rstrip(b" \t\r\n\x00").decode("utf-8"))
+            return [str(item.get("name", "")) for item in document.get("animations", [])]
+        offset += 8 + chunk_length
+    raise SystemExit("character GLB is missing its JSON metadata chunk")
+
+
+def validate_glb(data: bytes) -> list[str]:
     if len(data) != EXPECTED_SIZE:
         raise SystemExit(f"character asset size mismatch: {len(data)} != {EXPECTED_SIZE}")
     if data[:4] != b"glTF":
@@ -34,6 +48,16 @@ def validate_glb(data: bytes) -> None:
         raise SystemExit(
             f"character source integrity mismatch: {actual_blob} != {SOURCE_BLOB_SHA1}"
         )
+    names = animation_names(data)
+    lower = [name.lower() for name in names]
+    if not any("idle" in name for name in lower):
+        raise SystemExit(f"character asset has no idle animation: {names}")
+    if not any("walk" in name for name in lower):
+        raise SystemExit(f"character asset has no walk animation: {names}")
+    if len(names) < 2:
+        raise SystemExit(f"character asset animation set is unexpectedly small: {names}")
+    print("CHARACTER ANIMATIONS:", ", ".join(names))
+    return names
 
 
 def main() -> None:
@@ -46,7 +70,7 @@ def main() -> None:
 
     if cache.is_file():
         data = cache.read_bytes()
-        validate_glb(data)
+        names = validate_glb(data)
         print("CHARACTER ASSET: verified cached source")
     else:
         request = urllib.request.Request(
@@ -55,7 +79,7 @@ def main() -> None:
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             data = response.read(EXPECTED_SIZE + 1)
-        validate_glb(data)
+        names = validate_glb(data)
         cache.write_bytes(data)
         print("CHARACTER ASSET: downloaded and verified pinned CC0 source")
 
@@ -73,7 +97,8 @@ def main() -> None:
         f"- Git blob SHA-1: `{SOURCE_BLOB_SHA1}`\n"
         "- Original character source: Quaternius\n"
         "- License: CC0 1.0 Universal / public domain\n"
-        "- Use in CUMA WORLD: locomotion/social character base only.\n",
+        "- Use in CUMA WORLD: locomotion/social character base only.\n"
+        f"- Verified animation clips: {', '.join(names)}\n",
         encoding="utf-8",
     )
     print("CHARACTER ASSET INSTALL: PASS")
