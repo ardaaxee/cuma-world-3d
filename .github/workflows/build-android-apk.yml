@@ -198,6 +198,27 @@ jobs:
             exit 1
           fi
 
+      - name: Godot runtime startup smoke
+        working-directory: game
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
+          set -euxo pipefail
+          echo "Godot runtime startup smoke" > "$RUNNER_TEMP/cuma-stage"
+          set +e
+          "$GODOT_BIN" --headless --path . --quit-after 180 --verbose 2>&1 | tee /tmp/godot-runtime.log
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          if [ "$GODOT_EXIT" -ne 0 ]; then
+            echo "Godot runtime exited with code $GODOT_EXIT"
+            exit "$GODOT_EXIT"
+          fi
+          if grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/godot-runtime.log; then
+            echo 'Godot runtime startup errors detected.'
+            grep -Ein 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/godot-runtime.log || true
+            exit 1
+          fi
+
       - name: Export debug ARM64 APK
         working-directory: game
         shell: bash
@@ -232,7 +253,7 @@ jobs:
           gh issue create \
             --repo "$GITHUB_REPOSITORY" \
             --title "APK build succeeded #${GITHUB_RUN_NUMBER}" \
-            --body "Android ARM64 debug APK built successfully. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-3D-Android-Debug-ARM64. Commit: $GITHUB_SHA"
+            --body "Android ARM64 debug APK built successfully after parser/import and runtime startup smoke gates. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-3D-Android-Debug-ARM64. Commit: $GITHUB_SHA"
 
       - name: Upload build diagnostics
         if: always()
@@ -243,6 +264,7 @@ jobs:
             ${{ runner.temp }}/cuma-build.log
             ${{ runner.temp }}/cuma-stage
             /tmp/godot-import.log
+            /tmp/godot-runtime.log
             /tmp/godot-export.log
           if-no-files-found: ignore
           retention-days: 7
@@ -264,7 +286,7 @@ jobs:
             echo "- Stage: **$STAGE**"
             echo
             echo '```text'
-            tail -n 140 "$RUNNER_TEMP/cuma-build.log" 2>/dev/null || true
+            tail -n 180 "$RUNNER_TEMP/cuma-build.log" 2>/dev/null || true
             echo '```'
           } > "$BODY"
           gh issue create \
