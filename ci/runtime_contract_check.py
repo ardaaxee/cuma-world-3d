@@ -11,6 +11,13 @@ def fail(message: str) -> None:
     raise SystemExit(f"RUNTIME CONTRACT CHECK: FAIL: {message}")
 
 
+def function_body(text: str, name: str) -> str:
+    marker = f"func {name}"
+    if marker not in text:
+        fail(f"missing function {name}")
+    return text.split(marker, 1)[1].split("\nfunc ", 1)[0]
+
+
 def main() -> None:
     if not ROOT.is_dir():
         fail(f"missing extracted game directory: {ROOT}")
@@ -18,6 +25,8 @@ def main() -> None:
     dynamic = (ROOT / "scripts/city/dynamic_city_builder.gd").read_text(encoding="utf-8")
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
     main_script = (ROOT / "scripts/main.gd").read_text(encoding="utf-8")
+    ultra_home = (ROOT / "scripts/world/ultra_home_builder.gd").read_text(encoding="utf-8")
+    production_home = (ROOT / "scripts/world/production_home_builder.gd").read_text(encoding="utf-8")
 
     if 'var bus = AnimatableBody3D.new(); bus.name = "CityBus18"' not in dynamic:
         fail("CityBus18 must be instantiated as AnimatableBody3D")
@@ -72,6 +81,30 @@ def main() -> None:
     missing = [call for call in required_ready_calls if call not in ready_body]
     if missing:
         fail("staged startup lost required calls: " + ", ".join(missing))
+
+    # ProductionHome21 owns the static interior art direction. UltraHome07 stays
+    # as an interaction/detail layer so the same room is not rendered 2-3 times.
+    ultra_setup = function_body(ultra_home, "setup(world_root: Node3D) -> void:")
+    forbidden_ultra_static_calls = [
+        "_build_entry()",
+        "_build_living_room_layer()",
+        "_build_bathroom_layer()",
+        "_build_bedroom_layer()",
+        "_build_balcony_layer()",
+        "_build_ceiling_and_lighting()",
+    ]
+    duplicate_calls = [call for call in forbidden_ultra_static_calls if call in ultra_setup]
+    if duplicate_calls:
+        fail("UltraHome07 still builds superseded static room layers: " + ", ".join(duplicate_calls))
+    for required in ["_build_kitchen_layer()", "_build_curtains()", "_build_micro_details()"]:
+        if required not in ultra_setup:
+            fail(f"UltraHome07 lost required interaction/detail layer: {required}")
+
+    production_setup = function_body(production_home, "setup(world_root: Node3D) -> void:")
+    if "_hide_superseded_home_overlays()" not in production_setup:
+        fail("ProductionHome21 must hide superseded RealismOverhaul home meshes")
+    if "func _is_production_home_zone(pos: Vector3) -> bool:" not in production_home:
+        fail("ProductionHome21 missing replacement-zone ownership helper")
 
     # Best-effort check for same-line native-node/script mismatches.
     bases: dict[str, str] = {}
