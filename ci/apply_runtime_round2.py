@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1] / "game"
 
@@ -21,6 +23,16 @@ def replace_exact(path: Path, old: str, new: str, label: str) -> None:
 def main() -> None:
     if not ROOT.is_dir():
         raise SystemExit(f"game directory not found: {ROOT}")
+
+    installer = Path(__file__).with_name("install_character_assets.py")
+    if not installer.is_file():
+        raise SystemExit("missing ci/install_character_assets.py")
+    subprocess.run([sys.executable, str(installer)], check=True)
+
+    for name in ("cuma.glb", "partner.glb"):
+        target = ROOT / "assets" / "characters" / name
+        if not target.is_file() or target.stat().st_size != 698560:
+            raise SystemExit(f"installed character asset invalid: {target}")
 
     relationship = ROOT / "scripts" / "social" / "relationship_citizen.gd"
 
