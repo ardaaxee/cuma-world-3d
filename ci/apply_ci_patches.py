@@ -34,6 +34,21 @@ def main() -> None:
         "mobile_controls.gd unexpected indentation",
     )
 
+    presets = ROOT / "export_presets.cfg"
+    replace_exact(
+        presets,
+        'gradle_build/min_sdk="24"\ngradle_build/target_sdk="35"\n',
+        '',
+        "remove Min/Target SDK overrides when Gradle build is disabled",
+    )
+
+    replace_exact(
+        project,
+        'renderer/rendering_method.mobile="gl_compatibility"\ntextures/default_filters/use_nearest_mipmap_filter=false',
+        'renderer/rendering_method.mobile="gl_compatibility"\ntextures/vram_compression/import_etc2_astc=true\ntextures/default_filters/use_nearest_mipmap_filter=false',
+        "enable ETC2/ASTC texture import for Android export",
+    )
+
     print("CI patch layer complete.")
 
 
