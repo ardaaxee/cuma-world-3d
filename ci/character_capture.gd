@@ -26,16 +26,29 @@ func _ready() -> void:
 	for i in range(8):
 		await get_tree().process_frame
 
-	var bounds = _world_bounds(model_root)
-	var native_size: Vector3 = bounds.get("size", Vector3.ZERO)
-	var native_min: Vector3 = bounds.get("min", Vector3.ZERO)
-	print("CUMA_CHARACTER_NATIVE_BOUNDS min=", native_min, " size=", native_size)
-	if native_size.y <= 0.01:
-		_fail("character native height is invalid: " + str(native_size))
+	# Skinned MeshInstance3D AABBs are often expanded to cover every animation
+	# clip. They are useful diagnostics, but they are not a reliable body-height
+	# measurement. Use the skeleton rest pose for production normalization.
+	var mesh_bounds = _world_bounds(model_root)
+	var mesh_size: Vector3 = mesh_bounds.get("size", Vector3.ZERO)
+	print("CUMA_CHARACTER_ANIMATED_MESH_BOUNDS min=", mesh_bounds.get("min", Vector3.ZERO), " size=", mesh_size)
+
+	var skeletons = model_root.find_children("*", "Skeleton3D", true, false)
+	if skeletons.is_empty():
+		_fail("Godot import contains no Skeleton3D")
 		_finish()
 		return
-	if native_size.y < native_size.x or native_size.y < native_size.z:
-		_fail("character is not upright on Y axis: " + str(native_size))
+	var skeleton = skeletons[0] as Skeleton3D
+	var rest_bounds = _skeleton_rest_bounds(skeleton)
+	var rest_size: Vector3 = rest_bounds.get("size", Vector3.ZERO)
+	var rest_min: Vector3 = rest_bounds.get("min", Vector3.ZERO)
+	print("CUMA_CHARACTER_REST_BOUNDS min=", rest_min, " size=", rest_size, " bones=", skeleton.get_bone_count())
+	if rest_size.y <= 0.10:
+		_fail("character skeleton rest height is invalid: " + str(rest_size))
+		_finish()
+		return
+	if rest_size.y <= rest_size.x or rest_size.y <= rest_size.z:
+		_fail("character skeleton rest pose is not upright on Y axis: " + str(rest_size))
 		_finish()
 		return
 
@@ -59,13 +72,14 @@ func _ready() -> void:
 	print("CUMA_CHARACTER_GODOT_ANIMATIONS ", names)
 	if names.size() < 2:
 		_fail("Godot imported too few animation clips")
+		_finish()
+		return
 
-	# Normalize only inside the audit stage. The measured scale is printed so the
-	# gameplay integration can explicitly use the same production scale later.
-	var scale_factor = TARGET_HEIGHT / native_size.y
+	var scale_factor = TARGET_HEIGHT / rest_size.y
 	model_root.scale = Vector3.ONE * scale_factor
-	model_root.position.y = -native_min.y * scale_factor
+	model_root.position.y = -rest_min.y * scale_factor
 	print("CUMA_CHARACTER_RECOMMENDED_SCALE ", "%.6f" % scale_factor)
+	print("CUMA_CHARACTER_RECOMMENDED_Y_OFFSET ", "%.6f" % (-rest_min.y * scale_factor))
 
 	_build_stage()
 	await _capture_state("idle", 0.0, false)
@@ -133,6 +147,15 @@ func _capture_state(label: String, speed: float, running: bool) -> void:
 		_fail("could not save " + output + ": " + str(error))
 		return
 	print("CUMA_CHARACTER_CAPTURE ", label, " -> ", output)
+
+func _skeleton_rest_bounds(skeleton: Skeleton3D) -> Dictionary:
+	var min_v = Vector3(INF, INF, INF)
+	var max_v = Vector3(-INF, -INF, -INF)
+	for bone_idx in range(skeleton.get_bone_count()):
+		var point = skeleton.global_transform * skeleton.get_bone_global_rest(bone_idx).origin
+		min_v = min_v.min(point)
+		max_v = max_v.max(point)
+	return {"min": min_v, "max": max_v, "size": max_v - min_v}
 
 func _world_bounds(root: Node) -> Dictionary:
 	var state = {
