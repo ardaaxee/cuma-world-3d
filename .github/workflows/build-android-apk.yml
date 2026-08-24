@@ -64,6 +64,23 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install CI Python dependencies
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
+          set -euxo pipefail
+          echo "Install CI Python dependencies" > "$RUNNER_TEMP/cuma-stage"
+          python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+          python -c "from PIL import Image; print('Pillow OK')"
+
+      - name: Apply CI source patches
+        shell: bash
+        run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
+          set -euxo pipefail
+          echo "Apply CI source patches" > "$RUNNER_TEMP/cuma-stage"
+          python ci/apply_ci_patches.py
+
       - name: Setup Java 17
         uses: actions/setup-java@v4
         with:
