@@ -8,6 +8,8 @@ on:
       - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
       - 'ci/apply_ci_patches.py'
       - 'ci/runtime_contract_check.py'
+      - 'ci/apply_visual_polish.py'
+      - 'ci/apply_visual_finish.py'
       - 'ci/visual_capture.gd'
       - 'ci/visual_capture.tscn'
       - '.github/workflows/visual-audit.yml'
