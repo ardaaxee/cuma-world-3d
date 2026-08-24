@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1] / "game"
 
@@ -71,6 +73,120 @@ def main() -> None:
         "pass a typed Vector3 route to patrol_vehicle.gd",
     )
 
+    main_script = ROOT / "scripts" / "main.gd"
+    old_ready = '''func _ready() -> void:
+\t_register_input_actions()
+\t_build_lighting()
+\t_build_world_ground()
+\t_build_house_shell()
+\t_build_room_layout()
+\t_build_furniture()
+\t_build_balcony()
+\t_build_windows_and_city()
+\t_build_street_v03()
+\t_build_interactions_v03()
+\t_build_together_spaces()
+\t_build_realism_overhaul()
+\t_build_ultra_home_07()
+\t_build_production_home_21()
+\t_build_living_city_08()
+\t_build_production_city_polish_21()
+\t_build_online_life_09()
+\t_build_full_life_10()
+\t_build_online_relay_11()
+\t_build_physical_ai_14()
+\t_build_human_behavior_15()
+\t_build_social_life_12()
+\t_build_npc_intelligence_13()
+\t_build_daily_life_16()
+\t_build_city_society_17()
+\t_build_dynamic_city_18()
+\t_build_crime_justice_19()
+\t_build_runtime_systems()
+\t_build_weather_09()
+\tvar net = get_node_or_null("/root/NetworkManager")
+\tvar dedicated = net != null and net.has_method("is_dedicated_server") and net.is_dedicated_server()
+\tif dedicated:
+\t\treturn
+\t_spawn_player()
+\t_connect_network()
+\t_spawn_mobile_controls()
+\t_build_phone_09()
+\t_build_social_ui_12()
+\t_build_cyber_ui_19()
+\t_build_law_hud_19()
+'''
+    new_ready = '''func _ready() -> void:
+\tvar boot_started_ms = Time.get_ticks_msec()
+\t_register_input_actions()
+
+\t# Stage 1: core playable home shell.
+\t_build_lighting()
+\t_build_world_ground()
+\t_build_house_shell()
+\t_build_room_layout()
+\t_build_furniture()
+\t_build_balcony()
+\t_build_windows_and_city()
+\tawait get_tree().process_frame
+
+\t# Stage 2: home interactions and production visuals.
+\t_build_street_v03()
+\t_build_interactions_v03()
+\t_build_together_spaces()
+\t_build_realism_overhaul()
+\t_build_ultra_home_07()
+\t_build_production_home_21()
+\tawait get_tree().process_frame
+
+\t# Stage 3: city and online-life layers.
+\t_build_living_city_08()
+\t_build_production_city_polish_21()
+\t_build_online_life_09()
+\t_build_full_life_10()
+\t_build_online_relay_11()
+\tawait get_tree().process_frame
+
+\t# Stage 4: navigation, behavior and social AI.
+\t_build_physical_ai_14()
+\t_build_human_behavior_15()
+\t_build_social_life_12()
+\t_build_npc_intelligence_13()
+\t_build_daily_life_16()
+\tawait get_tree().process_frame
+
+\t# Stage 5: society, dynamic city, law and weather.
+\t_build_city_society_17()
+\t_build_dynamic_city_18()
+\t_build_crime_justice_19()
+\t_build_runtime_systems()
+\t_build_weather_09()
+\tawait get_tree().process_frame
+
+\tvar net = get_node_or_null("/root/NetworkManager")
+\tvar dedicated = net != null and net.has_method("is_dedicated_server") and net.is_dedicated_server()
+\tif dedicated:
+\t\tprint("CUMA_BOOT_READY dedicated ms=", Time.get_ticks_msec() - boot_started_ms)
+\t\treturn
+
+\t_spawn_player()
+\t_connect_network()
+\t_spawn_mobile_controls()
+\t_build_phone_09()
+\t_build_social_ui_12()
+\t_build_cyber_ui_19()
+\t_build_law_hud_19()
+\tprint("CUMA_BOOT_READY client ms=", Time.get_ticks_msec() - boot_started_ms)
+'''
+    replace_exact(
+        main_script,
+        old_ready,
+        new_ready,
+        "stage heavy world initialization across multiple frames",
+    )
+
+    checker = Path(__file__).with_name("runtime_contract_check.py")
+    subprocess.run([sys.executable, str(checker)], check=True)
     print("CI patch layer complete.")
 
 
