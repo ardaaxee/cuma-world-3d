@@ -17,6 +17,8 @@ func _ready() -> void:
 	for i in range(140):
 		await get_tree().process_frame
 
+	_assert_city_vehicles_clear_of_home()
+
 	# Audit images must show the production art itself, not gameplay HUD/debug labels.
 	_hide_audit_ui(world_scene)
 
@@ -53,6 +55,20 @@ func _ready() -> void:
 	else:
 		print("CUMA_VISUAL_AUDIT_READY")
 		get_tree().quit(0)
+
+func _assert_city_vehicles_clear_of_home() -> void:
+	# The house footprint is near world origin. Dynamic city/law vehicles must never
+	# remain there after startup; doing so physically blocks the player's corridor.
+	for vehicle_name in ["CityBus18", "CityTaxi18", "PolicePatrolCar"]:
+		var vehicle = world_scene.find_child(vehicle_name, true, false)
+		if vehicle == null or not (vehicle is Node3D):
+			_fail("Missing expected city vehicle: " + vehicle_name)
+			continue
+		var vehicle_3d = vehicle as Node3D
+		var planar_distance = Vector2(vehicle_3d.global_position.x, vehicle_3d.global_position.z).length()
+		print("CUMA_VEHICLE_SPAWN ", vehicle_name, " pos=", vehicle_3d.global_position, " planar=", "%.2f" % planar_distance)
+		if planar_distance < 12.0:
+			_fail(vehicle_name + " spawned inside/next to the home instead of its city route: " + str(vehicle_3d.global_position))
 
 func _capture_view(view_name: String, camera_pos: Vector3, target: Vector3) -> void:
 	audit_camera.global_position = camera_pos
