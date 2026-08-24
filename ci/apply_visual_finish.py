@@ -18,6 +18,28 @@ def replace_exact(path: Path, old: str, new: str, label: str) -> None:
     print(f"VISUAL FINISH APPLIED: {label}")
 
 
+def replace_section(
+    path: Path,
+    start_marker: str,
+    end_marker: str,
+    replacement: str,
+    applied_marker: str,
+    label: str,
+) -> None:
+    text = path.read_text(encoding="utf-8")
+    if applied_marker in text:
+        print(f"VISUAL FINISH ALREADY APPLIED: {label}")
+        return
+    start = text.find(start_marker)
+    if start < 0:
+        raise SystemExit(f"{label}: start marker not found")
+    end = text.find(end_marker, start)
+    if end < 0:
+        raise SystemExit(f"{label}: end marker not found")
+    path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+    print(f"VISUAL FINISH APPLIED: {label}")
+
+
 def main() -> None:
     if not ROOT.is_dir():
         raise SystemExit(f"game directory not found: {ROOT}")
@@ -25,7 +47,6 @@ def main() -> None:
     production = ROOT / "scripts" / "world" / "production_home_builder.gd"
     ultra = ROOT / "scripts" / "world" / "ultra_home_builder.gd"
 
-    # Raise the darkest upholstery floor so fabric detail survives dusk/mobile displays.
     replace_exact(
         production,
         'fabric_dark = _pbr_material("fabric", Color("343a42"), 0.96, 0.0, 2.1, 0.24)',
@@ -33,20 +54,7 @@ def main() -> None:
         "lift dark upholstery without making it glossy",
     )
 
-    old_sofa = '''\t# Production sofa: one low structural base, individual seat cushions and softer back cushions.
-\t# This removes the oversized tube/sausage silhouette visible in the first render audit.
-\tvar sofa_root = Node3D.new()
-\tsofa_root.position = Vector3(-7.0, 0.0, 5.78)
-\troot.add_child(sofa_root)
-\t_panel_on(sofa_root, Vector3(4.35, 0.24, 1.48), Vector3(0.0, 0.29, 0.0), fabric_dark)
-\tfor x in [-1.34, 0.0, 1.34]:
-\t\t_panel_on(sofa_root, Vector3(1.26, 0.16, 1.18), Vector3(x, 0.49, -0.08), fabric_dark)
-\t\t_capsule_on(sofa_root, Vector3(x, 0.92, 0.49), 0.17, 1.14, fabric_dark, Vector3(0.0, 0.0, 90.0), Vector3(1.0, 1.0, 0.86))
-\tfor x in [-2.06, 2.06]:
-\t\t_capsule_on(sofa_root, Vector3(x, 0.58, 0.02), 0.16, 0.78, fabric_dark, Vector3.ZERO, Vector3(1.0, 1.0, 2.55))
-\tfor x in [-0.98, 0.92]:
-\t\t_sphere_on(sofa_root, Vector3(x, 0.84, -0.42), Vector3(0.34, 0.25, 0.13), fabric_light)'''
-    new_sofa = '''\t# Production sofa uses restrained upholstered slabs instead of capsule tubes.
+    sofa = '''\t# Production sofa uses restrained upholstered slabs instead of capsule tubes.
 \tvar sofa_root = Node3D.new()
 \tsofa_root.position = Vector3(-7.0, 0.0, 5.78)
 \troot.add_child(sofa_root)
@@ -59,26 +67,18 @@ def main() -> None:
 \tfor x in [-2.02, 2.02]:
 \t\t_panel_on(sofa_root, Vector3(0.18, 0.62, 1.18), Vector3(x, 0.54, 0.0), fabric_dark)
 \t_sphere_on(sofa_root, Vector3(-0.94, 0.78, -0.43), Vector3(0.26, 0.20, 0.11), sofa_accent)
-\t_sphere_on(sofa_root, Vector3(0.92, 0.78, -0.43), Vector3(0.26, 0.20, 0.11), fabric_light)'''
-    replace_exact(
+\t_sphere_on(sofa_root, Vector3(0.92, 0.78, -0.43), Vector3(0.26, 0.20, 0.11), fabric_light)
+'''
+    replace_section(
         production,
-        old_sofa,
-        new_sofa,
+        "\t# Production sofa: one low structural base",
+        "\t# Coffee table:",
+        sofa,
+        "Production sofa uses restrained upholstered slabs",
         "replace remaining capsule sofa backs with upholstered panels",
     )
 
-    old_bed = '''\t\t_panel(Vector3(2.78, 0.18, 3.72), p + Vector3(0.0, 0.17, 0.0), oak)
-\t\t_panel(Vector3(2.64, 0.27, 3.52), p + Vector3(0.0, 0.41, 0.0), fabric_light)
-\t\t# A restrained rounded duvet keeps a soft silhouette without becoming a giant oval blob.
-\t\t_capsule(p + Vector3(0.0, 0.63, -0.18), 0.17, 2.24, fabric_light, Vector3(0.0, 0.0, 90.0), Vector3(1.0, 1.0, 5.8))
-\t\t_sphere(p + Vector3(-0.55, 0.70, 1.20), Vector3(0.48, 0.14, 0.30), warm_white)
-\t\t_sphere(p + Vector3(0.55, 0.70, 1.20), Vector3(0.48, 0.14, 0.30), warm_white)
-\t\t# Lower, narrower upholstered headboard channels improve room scale.
-\t\tfor x in range(6):
-\t\t\t_capsule(p + Vector3(-0.875 + float(x) * 0.35, 1.28, 1.64), 0.105, 0.92, fabric_dark, Vector3.ZERO, Vector3(1.0, 1.0, 0.28))
-\t\t_bedside_table(p + Vector3(-1.68, 0.0, 0.92), idx)
-\t\t_bedside_table(p + Vector3(1.68, 0.0, 0.92), idx + 10)'''
-    new_bed = '''\t\t_panel(Vector3(2.78, 0.18, 3.72), p + Vector3(0.0, 0.17, 0.0), oak)
+    bed = '''\t\t_panel(Vector3(2.78, 0.18, 3.72), p + Vector3(0.0, 0.17, 0.0), oak)
 \t\t_panel(Vector3(2.64, 0.27, 3.52), p + Vector3(0.0, 0.41, 0.0), fabric_light)
 \t\t# Layered bedding reads as a duvet instead of a stretched capsule/blob.
 \t\t_panel(Vector3(2.48, 0.13, 2.72), p + Vector3(0.0, 0.61, -0.30), fabric_light)
@@ -90,11 +90,14 @@ def main() -> None:
 \t\tfor x in [-0.88, -0.44, 0.0, 0.44, 0.88]:
 \t\t\t_panel(Vector3(0.018, 0.82, 0.025), p + Vector3(x, 1.23, 1.56), metal_dark)
 \t\t_bedside_table(p + Vector3(-1.68, 0.0, 0.92), idx)
-\t\t_bedside_table(p + Vector3(1.68, 0.0, 0.92), idx + 10)'''
-    replace_exact(
+\t\t_bedside_table(p + Vector3(1.68, 0.0, 0.92), idx + 10)
+'''
+    replace_section(
         production,
-        old_bed,
-        new_bed,
+        "\t\t_panel(Vector3(2.78, 0.18, 3.72)",
+        "\t# Better wardrobe faces",
+        bed,
+        "Layered bedding reads as a duvet",
         "replace capsule duvet and pipe headboard with layered bedding",
     )
 
@@ -116,12 +119,16 @@ def main() -> None:
         "add low-cost dusk fill for living-room upholstery",
     )
 
-    # Give the narrow galley more circulation around the interactive island.
+    # The interactive UltraHome island is the sole island geometry owner after the
+    # earlier ProductionHome overlap removal. Refine it in one deterministic replacement.
     replace_exact(
         ultra,
         '_panel(root,Vector3(2.75,0.08,1.15),Vector3(6.3,0.98,4.95),Vector3.ZERO,marble)',
-        '_panel(root,Vector3(2.45,0.08,0.98),Vector3(6.3,0.98,4.95),Vector3.ZERO,marble)',
-        "reduce kitchen island top footprint",
+        '''_panel(root,Vector3(2.45,0.08,0.98),Vector3(6.3,0.98,4.95),Vector3.ZERO,marble)
+\t_panel(root,Vector3(2.18,0.62,0.72),Vector3(6.3,0.56,4.95),Vector3.ZERO,_mat(Color("3f4247"),0.90))
+\tfor x in [-0.88,-0.59,-0.30,0.0,0.30,0.59,0.88]:
+\t\t_panel(root,Vector3(0.035,0.52,0.76),Vector3(6.3+x,0.58,4.95),Vector3.ZERO,walnut)''',
+        "reduce and detail interactive kitchen island",
     )
     replace_exact(
         ultra,
@@ -130,7 +137,6 @@ def main() -> None:
         "tighten waterfall island sides for wider passages",
     )
 
-    # Render audit round 2: reduce corridor hotspot clipping while keeping the runner readable.
     replace_exact(
         production,
         'fixture.material_override = _emissive(Color("ffe2bd"), 1.6)',
@@ -158,19 +164,6 @@ def main() -> None:
         "lift living-room local fill slightly",
     )
 
-    # Match the production countertop footprint to the already tightened interactive island,
-    # then give the base an inset dark carcass and narrow oak rhythm instead of one plain block.
-    replace_exact(
-        production,
-        '_panel(Vector3(2.85, 0.11, 1.18), Vector3(6.30, 0.99, 4.95), stone)',
-        '''_panel(Vector3(2.50, 0.10, 1.02), Vector3(6.30, 0.99, 4.95), stone)
-\t_panel(Vector3(2.18, 0.62, 0.72), Vector3(6.30, 0.56, 4.95), fabric_dark)
-\tfor x in [-0.88, -0.59, -0.30, 0.0, 0.30, 0.59, 0.88]:
-\t\t_panel(Vector3(0.035, 0.52, 0.76), Vector3(6.30 + x, 0.58, 4.95), oak)''',
-        "refine kitchen island base and slatted front",
-    )
-
-    # Replace seven thick curtain bars with eleven slimmer fabric folds.
     replace_exact(
         ultra,
         '''\tfor i in range(7):
