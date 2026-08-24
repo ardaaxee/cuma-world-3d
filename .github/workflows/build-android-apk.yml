@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: cuma-world-android-${{ github.ref }}
@@ -26,28 +27,37 @@ env:
 jobs:
   build-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify source ZIP
+      - name: Initialize diagnostics
         shell: bash
         run: |
-          set -euxo pipefail
-          test -s "$SOURCE_ZIP"
-          ls -lh "$SOURCE_ZIP"
+          : > "$RUNNER_TEMP/cuma-build.log"
+          echo "Initialize diagnostics" > "$RUNNER_TEMP/cuma-stage"
+          {
+            echo "run=$GITHUB_RUN_ID"
+            echo "sha=$GITHUB_SHA"
+            echo "runner=$RUNNER_OS/$RUNNER_ARCH"
+          } | tee -a "$RUNNER_TEMP/cuma-build.log"
 
-      - name: Extract Godot project
+      - name: Verify and extract source ZIP
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Verify and extract source ZIP" > "$RUNNER_TEMP/cuma-stage"
+          test -s "$SOURCE_ZIP"
+          unzip -tq "$SOURCE_ZIP"
           rm -rf game
           mkdir -p game
           unzip -q "$SOURCE_ZIP" -d game
           test -f game/project.godot
           test -f game/export_presets.cfg
+          ls -lh "$SOURCE_ZIP" game/project.godot game/export_presets.cfg
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -63,42 +73,62 @@ jobs:
       - name: Install Android SDK packages
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
-          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" \
+          echo "Install Android SDK packages" > "$RUNNER_TEMP/cuma-stage"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" \
             'platform-tools' \
             'build-tools;35.0.1' \
             'platforms;android-35' \
             'cmdline-tools;latest' \
             'cmake;3.10.2.4988404' \
             'ndk;28.1.13356709'
+          test -x "$ANDROID_SDK_ROOT/platform-tools/adb"
+          test -d "$ANDROID_SDK_ROOT/build-tools/35.0.1"
+          java -version
 
       - name: Install Godot 4.7.2 and export templates
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Install Godot 4.7.2 and export templates" > "$RUNNER_TEMP/cuma-stage"
           mkdir -p "$HOME/godot" "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION"
-          curl -fL --retry 4 --retry-delay 2 \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
-            -o /tmp/godot.zip
+
+          GODOT_ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          TEMPLATE_ASSET="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          MAIN_BASE="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          BUILDS_BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}"
+
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$GODOT_ASSET" -o /tmp/godot.zip \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$GODOT_ASSET" -o /tmp/godot.zip
           unzip -q /tmp/godot.zip -d "$HOME/godot"
           GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          test -f "$GODOT_BIN"
           chmod +x "$GODOT_BIN"
           echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
 
-          curl -fL --retry 4 --retry-delay 2 \
-            "https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/Godot_v${GODOT_VERSION}-stable_export_templates.tpz" \
-            -o /tmp/templates.tpz
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$TEMPLATE_ASSET" -o /tmp/templates.tpz \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$TEMPLATE_ASSET" -o /tmp/templates.tpz
           rm -rf /tmp/godot-templates
           mkdir -p /tmp/godot-templates
           unzip -q /tmp/templates.tpz -d /tmp/godot-templates
+          test -d /tmp/godot-templates/templates
           cp -a /tmp/godot-templates/templates/. "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION/"
+          test -f "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION/android_debug.apk"
           "$GODOT_BIN" --version
 
       - name: Configure Android export
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Configure Android export" > "$RUNNER_TEMP/cuma-stage"
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
           mkdir -p "$HOME/.android" "$HOME/.config/godot"
           if [ ! -f "$HOME/.android/debug.keystore" ]; then
             keytool -genkeypair -v \
@@ -121,15 +151,15 @@ jobs:
           export/android/debug_keystore_pass = "android"
           SETTINGS
 
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
 
       - name: Run regression tests
         working-directory: game
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Run regression tests" > "$RUNNER_TEMP/cuma-stage"
           python scripts/ci_apk_preflight.py
           for test_file in tests/*.py; do
             echo "==> $test_file"
@@ -140,10 +170,13 @@ jobs:
         working-directory: game
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Godot parser and import check" > "$RUNNER_TEMP/cuma-stage"
           "$GODOT_BIN" --headless --path . --editor --quit --verbose 2>&1 | tee /tmp/godot-import.log
           if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/godot-import.log; then
             echo 'Godot parser/import errors detected.'
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/godot-import.log || true
             exit 1
           fi
 
@@ -151,14 +184,18 @@ jobs:
         working-directory: game
         shell: bash
         run: |
+          exec > >(tee -a "$RUNNER_TEMP/cuma-build.log") 2>&1
           set -euxo pipefail
+          echo "Export debug ARM64 APK" > "$RUNNER_TEMP/cuma-stage"
           mkdir -p build
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
           "$GODOT_BIN" --headless --path . --export-debug "$PRESET" "$APK_PATH" 2>&1 | tee /tmp/godot-export.log
           test -s "$APK_PATH"
           sha256sum "$APK_PATH" > "$APK_PATH.sha256"
           ls -lh "$APK_PATH" "$APK_PATH.sha256"
 
       - name: Upload APK artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: CUMA-WORLD-3D-Android-Debug-ARM64
@@ -167,3 +204,41 @@ jobs:
             game/build/CUMA_WORLD_3D-debug-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-build-diagnostics-${{ github.run_number }}
+          path: |
+            ${{ runner.temp }}/cuma-build.log
+            ${{ runner.temp }}/cuma-stage
+            /tmp/godot-import.log
+            /tmp/godot-export.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report failure as GitHub issue
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STAGE="$(cat "$RUNNER_TEMP/cuma-stage" 2>/dev/null || echo unknown)"
+          BODY="$RUNNER_TEMP/failure-body.md"
+          {
+            echo "## CUMA WORLD Android build failed"
+            echo
+            echo "- Run: $GITHUB_RUN_ID"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Stage: **$STAGE**"
+            echo
+            echo '```text'
+            tail -n 140 "$RUNNER_TEMP/cuma-build.log" 2>/dev/null || true
+            echo '```'
+          } > "$BODY"
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "APK build failed #${GITHUB_RUN_NUMBER}: ${STAGE}" \
+            --body-file "$BODY"
