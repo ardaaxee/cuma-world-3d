@@ -7,6 +7,7 @@ on:
     paths:
       - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
       - '.github/workflows/build-android-apk.yml'
+      - 'ci/apply_ci_patches.py'
 
 permissions:
   contents: read
@@ -221,6 +222,17 @@ jobs:
             game/build/CUMA_WORLD_3D-debug-arm64.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+      - name: Report success as GitHub issue
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "APK build succeeded #${GITHUB_RUN_NUMBER}" \
+            --body "Android ARM64 debug APK built successfully. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-3D-Android-Debug-ARM64. Commit: $GITHUB_SHA"
 
       - name: Upload build diagnostics
         if: always()
