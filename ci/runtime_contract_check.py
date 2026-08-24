@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1] / "game"
 
@@ -21,6 +23,14 @@ def function_body(text: str, name: str) -> str:
 def main() -> None:
     if not ROOT.is_dir():
         fail(f"missing extracted game directory: {ROOT}")
+
+    # Keep production visual fixes in one small, auditable layer. Both Android
+    # build and Visual Audit enter through apply_ci_patches.py -> this checker,
+    # so they receive exactly the same visual source state.
+    visual_polish = Path(__file__).with_name("apply_visual_polish.py")
+    if not visual_polish.is_file():
+        fail("missing ci/apply_visual_polish.py")
+    subprocess.run([sys.executable, str(visual_polish)], check=True)
 
     dynamic = (ROOT / "scripts/city/dynamic_city_builder.gd").read_text(encoding="utf-8")
     crime = (ROOT / "scripts/city/crime_justice_builder.gd").read_text(encoding="utf-8")
@@ -105,6 +115,20 @@ def main() -> None:
         fail("ProductionHome21 must hide superseded RealismOverhaul home meshes")
     if "func _is_production_home_zone(pos: Vector3) -> bool:" not in production_home:
         fail("ProductionHome21 missing replacement-zone ownership helper")
+
+    # Visual-polish contracts found by the first real render audit.
+    if 'Vector3(-0.75, 0.24, 6.85)' not in main_script:
+        fail("legacy hall bench collider must align with the production entry bench")
+    if 'board.position = Vector3(-1.62, 1.42, 3.85)' not in main_script or 'board.rotation_degrees.y = 90.0' not in main_script:
+        fail("TogetherBoard must remain wall-mounted instead of blocking the corridor")
+    if 'decor.position = Vector3(1.62, 1.28, 2.10)' not in main_script:
+        fail("DecorStation must remain wall-mounted instead of blocking the corridor")
+    if 'Bedroom-local fill lights fix the dusk audit' not in production_home:
+        fail("production bedroom local fill lights are missing")
+    if 'giant oval blob' not in production_home:
+        fail("production bed proportion correction is missing")
+    if 'tube/sausage silhouette' not in production_home:
+        fail("production sofa silhouette correction is missing")
 
     # Best-effort check for same-line native-node/script mismatches.
     bases: dict[str, str] = {}
