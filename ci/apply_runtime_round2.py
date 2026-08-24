@@ -49,6 +49,14 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
+    # Network foundation layer: adds the optional Cloudflare control plane without
+    # replacing LAN/manual relay modes. This stays in the same deterministic patch
+    # stack used by Android builds and Visual Audit.
+    cloudflare = Path(__file__).with_name("apply_cloudflare_foundation.py")
+    if not cloudflare.is_file():
+        raise SystemExit("missing ci/apply_cloudflare_foundation.py")
+    subprocess.run([sys.executable, str(cloudflare)], check=True)
+
     print("CUMA RUNTIME ROUND2 PATCH: PASS")
 
 
