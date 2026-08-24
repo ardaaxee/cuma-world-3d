@@ -24,12 +24,14 @@ def main() -> None:
     if not ROOT.is_dir():
         fail(f"missing extracted game directory: {ROOT}")
 
-    # Both Android build and Visual Audit enter through apply_ci_patches.py ->
-    # this checker, so every production run receives the same audited patch stack.
-    visual_polish = Path(__file__).with_name("apply_visual_polish.py")
-    visual_finish = Path(__file__).with_name("apply_visual_finish.py")
-    visual_round3 = Path(__file__).with_name("apply_visual_round3.py")
-    for layer in [visual_polish, visual_finish, visual_round3]:
+    # Android build and Visual Audit share the exact same deterministic patch stack.
+    layers = [
+        Path(__file__).with_name("apply_visual_polish.py"),
+        Path(__file__).with_name("apply_visual_finish.py"),
+        Path(__file__).with_name("apply_visual_round3.py"),
+        Path(__file__).with_name("apply_visual_round4.py"),
+    ]
+    for layer in layers:
         if not layer.is_file():
             fail(f"missing {layer.relative_to(Path(__file__).resolve().parents[1])}")
         subprocess.run([sys.executable, str(layer)], check=True)
@@ -51,7 +53,6 @@ def main() -> None:
     if re.search(r"\bpatrol\.setup\(\s*\[", crime):
         fail("do not pass an untyped array literal directly to patrol_vehicle.setup")
 
-    # Animatable procedural vehicles must move on physics ticks with sync disabled.
     for label, source in [("public transport", transport), ("police patrol", patrol)]:
         if "sync_to_physics = false" not in source:
             fail(f"{label} must disable AnimatableBody3D sync_to_physics")
@@ -71,52 +72,27 @@ def main() -> None:
         fail("main.gd startup builders must be distributed across at least 4 frame boundaries")
 
     required_ready_calls = [
-        "_build_lighting()",
-        "_build_world_ground()",
-        "_build_house_shell()",
-        "_build_room_layout()",
-        "_build_furniture()",
-        "_build_balcony()",
-        "_build_windows_and_city()",
-        "_build_street_v03()",
-        "_build_interactions_v03()",
-        "_build_together_spaces()",
-        "_build_realism_overhaul()",
-        "_build_ultra_home_07()",
-        "_build_production_home_21()",
-        "_build_living_city_08()",
-        "_build_production_city_polish_21()",
-        "_build_online_life_09()",
-        "_build_full_life_10()",
-        "_build_online_relay_11()",
-        "_build_physical_ai_14()",
-        "_build_human_behavior_15()",
-        "_build_social_life_12()",
-        "_build_npc_intelligence_13()",
-        "_build_daily_life_16()",
-        "_build_city_society_17()",
-        "_build_dynamic_city_18()",
-        "_build_crime_justice_19()",
-        "_build_runtime_systems()",
-        "_build_weather_09()",
-        "_spawn_player()",
-        "_connect_network()",
-        "_spawn_mobile_controls()",
+        "_build_lighting()", "_build_world_ground()", "_build_house_shell()",
+        "_build_room_layout()", "_build_furniture()", "_build_balcony()",
+        "_build_windows_and_city()", "_build_street_v03()", "_build_interactions_v03()",
+        "_build_together_spaces()", "_build_realism_overhaul()", "_build_ultra_home_07()",
+        "_build_production_home_21()", "_build_living_city_08()",
+        "_build_production_city_polish_21()", "_build_online_life_09()",
+        "_build_full_life_10()", "_build_online_relay_11()", "_build_physical_ai_14()",
+        "_build_human_behavior_15()", "_build_social_life_12()",
+        "_build_npc_intelligence_13()", "_build_daily_life_16()",
+        "_build_city_society_17()", "_build_dynamic_city_18()",
+        "_build_crime_justice_19()", "_build_runtime_systems()", "_build_weather_09()",
+        "_spawn_player()", "_connect_network()", "_spawn_mobile_controls()",
     ]
     missing = [call for call in required_ready_calls if call not in ready_body]
     if missing:
         fail("staged startup lost required calls: " + ", ".join(missing))
 
-    # ProductionHome21 owns the static interior art direction. UltraHome07 stays
-    # as an interaction/detail layer so the same room is not rendered 2-3 times.
     ultra_setup = function_body(ultra_home, "setup(world_root: Node3D) -> void:")
     forbidden_ultra_static_calls = [
-        "_build_entry()",
-        "_build_living_room_layer()",
-        "_build_bathroom_layer()",
-        "_build_bedroom_layer()",
-        "_build_balcony_layer()",
-        "_build_ceiling_and_lighting()",
+        "_build_entry()", "_build_living_room_layer()", "_build_bathroom_layer()",
+        "_build_bedroom_layer()", "_build_balcony_layer()", "_build_ceiling_and_lighting()",
     ]
     duplicate_calls = [call for call in forbidden_ultra_static_calls if call in ultra_setup]
     if duplicate_calls:
@@ -131,13 +107,13 @@ def main() -> None:
     if "func _is_production_home_zone(pos: Vector3) -> bool:" not in production_home:
         fail("ProductionHome21 missing replacement-zone ownership helper")
 
-    # Visual-polish contracts discovered from real rendered screenshots.
+    # Visual-polish contracts discovered from actual CI-rendered screenshots.
     if 'Vector3(-0.75, 0.24, 6.85)' not in main_script:
-        fail("legacy hall bench collider must align with the production entry bench")
+        fail("legacy hall bench collider must align with production entry bench")
     if 'board.position = Vector3(-1.62, 1.42, 3.85)' not in main_script or 'board.rotation_degrees.y = 90.0' not in main_script:
-        fail("TogetherBoard must remain wall-mounted instead of blocking the corridor")
+        fail("TogetherBoard must remain wall-mounted")
     if 'decor.position = Vector3(1.62, 1.28, 2.10)' not in main_script:
-        fail("DecorStation must remain wall-mounted instead of blocking the corridor")
+        fail("DecorStation must remain wall-mounted")
     if 'Bedroom-local fill lights fix the dusk audit' not in production_home:
         fail("production bedroom local fill lights are missing")
     if 'Layered bedding reads as a duvet' not in production_home:
@@ -149,22 +125,33 @@ def main() -> None:
     if 'Color("4b5057")' not in production_home:
         fail("dark upholstery floor correction is missing")
 
-    # Visual Audit #7 round-3 contracts: narrower furniture/circulation, softer
-    # corridor lights and broad curtain cloth rather than capsule bars.
-    if 'fixture.material_override = _emissive(Color("ffe2bd"), 0.82)' not in production_home:
-        fail("round3 corridor fixture intensity is missing")
-    if 'Vector3(2.50, 0.18, 3.38)' not in production_home:
-        fail("round3 bedroom frame scaling is missing")
+    # Round 4: final proportions after Visual Audit #8.
+    if 'tv.setup(Vector3(2.72, 1.42, 0.10))' not in main_script:
+        fail("round4 TV scale correction is missing")
+    if 'fixture.material_override = _emissive(Color("ffe2bd"), 0.58)' not in production_home:
+        fail("round4 corridor fixture correction is missing")
+    if 'mesh.top_radius = 0.075' not in production_home:
+        fail("round4 corridor fixture size correction is missing")
+    if 'Vector3(2.34, 0.17, 3.12)' not in production_home:
+        fail("round4 bedroom frame scaling is missing")
     if 'bedroom_light.light_energy = 0.66' not in production_home:
-        fail("round3 bedroom fill correction is missing")
-    if 'Vector3(2.16,0.08,0.82)' not in ultra_home:
-        fail("round3 kitchen island clearance correction is missing")
+        fail("bedroom fill correction is missing")
+    if 'Vector3(0.48, 0.38, 0.14)' not in production_home:
+        fail("round4 compact sofa pillows are missing")
+    if 'living_fill.light_energy = 0.56' not in production_home:
+        fail("round4 living fill correction is missing")
+    if 'Vector3(1.92,0.075,0.72)' not in ultra_home:
+        fail("round4 kitchen island clearance correction is missing")
+    if 'Vector3(1.62,0.54,0.50)' not in ultra_home:
+        fail("round4 kitchen island carcass correction is missing")
+    if '_cylinder(root,pos,0.16,0.20' not in ultra_home:
+        fail("round4 pendant scale correction is missing")
     if 'Vector3(width * 0.46, height, 0.035)' not in ultra_home:
-        fail("round3 curtain cloth panel correction is missing")
+        fail("curtain cloth panel correction is missing")
     if 'for i in range(11):' in function_body(ultra_home, "_make_interactive_curtain"):
-        fail("old bar-like curtain fold loop survived round3")
+        fail("old bar-like curtain fold loop survived")
 
-    # Best-effort check for same-line native-node/script mismatches.
+    # Best-effort native-node/script mismatch scan.
     bases: dict[str, str] = {}
     for script in ROOT.rglob("*.gd"):
         lines = script.read_text(encoding="utf-8").splitlines()
