@@ -130,6 +130,60 @@ def main() -> None:
         "tighten waterfall island sides for wider passages",
     )
 
+    # Render audit round 2: reduce corridor hotspot clipping while keeping the runner readable.
+    replace_exact(
+        production,
+        'fixture.material_override = _emissive(Color("ffe2bd"), 1.6)',
+        'fixture.material_override = _emissive(Color("ffe2bd"), 1.12)',
+        "soften corridor recessed fixture emission",
+    )
+    replace_exact(
+        production,
+        '''\t\tlight.light_energy = 0.62
+\t\tlight.omni_range = 3.8''',
+        '''\t\tlight.light_energy = 0.46
+\t\tlight.omni_range = 3.55''',
+        "soften corridor omni pools",
+    )
+    replace_exact(
+        production,
+        'bedroom_light.light_energy = 0.48',
+        'bedroom_light.light_energy = 0.60',
+        "lift bedroom fill for mobile shadow detail",
+    )
+    replace_exact(
+        production,
+        'living_fill.light_energy = 0.40',
+        'living_fill.light_energy = 0.48',
+        "lift living-room local fill slightly",
+    )
+
+    # Match the production countertop footprint to the already tightened interactive island,
+    # then give the base an inset dark carcass and narrow oak rhythm instead of one plain block.
+    replace_exact(
+        production,
+        '_panel(Vector3(2.85, 0.11, 1.18), Vector3(6.30, 0.99, 4.95), stone)',
+        '''_panel(Vector3(2.50, 0.10, 1.02), Vector3(6.30, 0.99, 4.95), stone)
+\t_panel(Vector3(2.18, 0.62, 0.72), Vector3(6.30, 0.56, 4.95), fabric_dark)
+\tfor x in [-0.88, -0.59, -0.30, 0.0, 0.30, 0.59, 0.88]:
+\t\t_panel(Vector3(0.035, 0.52, 0.76), Vector3(6.30 + x, 0.58, 4.95), oak)''',
+        "refine kitchen island base and slatted front",
+    )
+
+    # Replace seven thick curtain bars with eleven slimmer fabric folds.
+    replace_exact(
+        ultra,
+        '''\tfor i in range(7):
+\t\tvar off = float(i)*0.085
+\t\t_capsule(left,Vector3(-width*0.24+off,0,0),0.055,height,cloth,Vector3.ZERO,Vector3(1.0,1.0,0.46))
+\t\t_capsule(right,Vector3(width*0.24-off,0,0),0.055,height,cloth,Vector3.ZERO,Vector3(1.0,1.0,0.46))''',
+        '''\tfor i in range(11):
+\t\tvar off = float(i) * 0.058
+\t\t_capsule(left, Vector3(-width * 0.24 + off, 0, 0), 0.036, height, cloth, Vector3.ZERO, Vector3(1.0, 1.0, 0.34))
+\t\t_capsule(right, Vector3(width * 0.24 - off, 0, 0), 0.036, height, cloth, Vector3.ZERO, Vector3(1.0, 1.0, 0.34))''',
+        "refine interactive curtain folds",
+    )
+
     print("CUMA VISUAL FINISH PATCH: PASS")
 
 
