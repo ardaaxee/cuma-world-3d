@@ -1,0 +1,170 @@
+name: Verify CUMA WORLD cinematic menu
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/menu-source-inspect.yml'
+      - 'ci/**'
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  TEMPLATE_VERSION: '4.7.2.stable'
+  PRESET: 'Android Debug ARM64'
+
+jobs:
+  verify-menu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Extract source and apply production patches
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+          rm -rf game
+          mkdir -p game
+          unzip -q CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip -d game
+          test -f game/project.godot
+          python ci/apply_ci_patches.py
+          python ci/cinematic_menu_contract.py
+
+      - name: Run Python regression suite
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python scripts/ci_apk_preflight.py
+          for test_file in tests/*.py; do
+            echo "==> $test_file"
+            python "$test_file"
+          done
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_SDK_ROOT" \
+            'platform-tools' \
+            'build-tools;35.0.1' \
+            'platforms;android-35' \
+            'cmdline-tools;latest' \
+            'cmake;3.10.2.4988404' \
+            'ndk;28.1.13356709'
+
+      - name: Install Godot and Android export templates
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot" "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION"
+          GODOT_ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          TEMPLATE_ASSET="Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
+          MAIN_BASE="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          BUILDS_BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}"
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$GODOT_ASSET" -o /tmp/godot.zip \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$GODOT_ASSET" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$TEMPLATE_ASSET" -o /tmp/templates.tpz \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$TEMPLATE_ASSET" -o /tmp/templates.tpz
+          rm -rf /tmp/godot-templates
+          mkdir -p /tmp/godot-templates
+          unzip -q /tmp/templates.tpz -d /tmp/godot-templates
+          cp -a /tmp/godot-templates/templates/. "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION/"
+          test -f "$HOME/.local/share/godot/export_templates/$TEMPLATE_VERSION/android_debug.apk"
+          "$GODOT_BIN" --version
+
+      - name: Configure Android export
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname 'CN=Android Debug,O=CUMA WORLD,C=TR'
+          fi
+          cat > "$HOME/.config/godot/editor_settings-4.7.tres" <<SETTINGS
+          [gd_resource type="EditorSettings" format=3]
+
+          [resource]
+          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
+          export/android/java_sdk_path = "$JAVA_HOME"
+          export/android/debug_keystore = "$HOME/.android/debug.keystore"
+          export/android/debug_keystore_user = "androiddebugkey"
+          export/android/debug_keystore_pass = "android"
+          SETTINGS
+
+      - name: Godot parser and import check
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path . --editor --quit --verbose 2>&1 | tee /tmp/menu-import.log
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/menu-import.log; then
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/menu-import.log || true
+            exit 1
+          fi
+
+      - name: Godot runtime menu smoke
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          set +e
+          "$GODOT_BIN" --headless --path . --quit-after 180 --verbose 2>&1 | tee /tmp/menu-runtime.log
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          test "$GODOT_EXIT" -eq 0
+          if grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/menu-runtime.log; then
+            grep -Ein 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/menu-runtime.log || true
+            exit 1
+          fi
+          grep -F 'CUMA_BOOT_READY client' /tmp/menu-runtime.log
+
+      - name: Export Android ARM64 debug APK
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export ANDROID_HOME="$ANDROID_SDK_ROOT"
+          mkdir -p build
+          "$GODOT_BIN" --headless --path . --export-debug "$PRESET" build/CUMA_WORLD_3D-menu-debug-arm64.apk 2>&1 | tee /tmp/menu-export.log
+          test -s build/CUMA_WORLD_3D-menu-debug-arm64.apk
+          sha256sum build/CUMA_WORLD_3D-menu-debug-arm64.apk > build/CUMA_WORLD_3D-menu-debug-arm64.apk.sha256
+          ls -lh build/CUMA_WORLD_3D-menu-debug-arm64.apk build/CUMA_WORLD_3D-menu-debug-arm64.apk.sha256
+
+      - name: Upload verified APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-Cinematic-Menu-Android-ARM64
+          path: |
+            game/build/CUMA_WORLD_3D-menu-debug-arm64.apk
+            game/build/CUMA_WORLD_3D-menu-debug-arm64.apk.sha256
+          if-no-files-found: error
+          retention-days: 7
