@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import shutil
 
 REPO = Path(__file__).resolve().parents[1]
@@ -22,6 +23,25 @@ def copy_overlay() -> None:
     if not OVERLAY.is_dir():
         raise SystemExit(f"menu overlay not found: {OVERLAY}")
     shutil.copytree(OVERLAY, GAME, dirs_exist_ok=True)
+
+
+def normalize_menu_gdscript_compat() -> None:
+    """Match the project's parser_compat_21 contract for generated scripts."""
+    scripts = [
+        GAME / "scripts" / "ui" / "cinematic_main_menu.gd",
+        GAME / "scripts" / "ui" / "menu_character.gd",
+    ]
+    for path in scripts:
+        text = path.read_text(encoding="utf-8")
+        # CUMA WORLD's Android compatibility suite intentionally avoids inferred
+        # `var :=` declarations in runtime scripts. Constants keep their existing
+        # syntax; only variable declarations are normalized.
+        text = re.sub(r"^(\s*var\s+[^\n]*?)\s*:=\s*", r"\1 = ", text, flags=re.MULTILINE)
+        # These nodes receive their scripts dynamically, so invoke custom methods
+        # dynamically too instead of asking the static parser to resolve them on
+        # the Node/Node3D base type.
+        text = text.replace("\tmenu_character.setup()", "\tmenu_character.call(\"setup\")")
+        path.write_text(text, encoding="utf-8")
 
 
 def patch_main() -> None:
@@ -54,7 +74,7 @@ def patch_main() -> None:
 \tmenu.name = "CinematicMainMenu"
 \tmenu.set_script(CinematicMainMenuScript)
 \tadd_child(menu)
-\tmenu.setup(self)
+\tmenu.call("setup", self)
 
 func _prepare_gameplay_from_menu() -> Node:
 \tvar existing = get_tree().get_first_node_in_group("player")
@@ -88,6 +108,7 @@ def main() -> None:
     if not (GAME / "project.godot").is_file():
         raise SystemExit("game/project.godot not found; extract source before menu patch")
     copy_overlay()
+    normalize_menu_gdscript_compat()
     patch_main()
     print("Cinematic main menu overlay applied.")
 
