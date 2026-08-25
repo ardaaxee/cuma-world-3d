@@ -37,9 +37,19 @@ func _ready() -> void:
 		if player_camera is Camera3D:
 			(player_camera as Camera3D).current = true
 		menu.call("_enter_persistent_playing_state")
-		for i in range(18):
+		for i in range(24):
 			await get_tree().process_frame
 		await _capture("07_gameplay")
+
+		var field_ops = get_tree().get_first_node_in_group("field_ops_runtime")
+		if field_ops != null and field_ops.has_method("_toggle_dossier"):
+			field_ops.call("_toggle_dossier")
+			for i in range(10):
+				await get_tree().process_frame
+			await _capture("18_field_ops_dossier")
+			field_ops.call("_toggle_dossier")
+			for i in range(4):
+				await get_tree().process_frame
 
 		var extras = menu.get("menu_extras")
 		if extras != null:
