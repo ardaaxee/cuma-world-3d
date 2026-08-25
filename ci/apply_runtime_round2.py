@@ -34,6 +34,26 @@ def main() -> None:
         if not target.is_file() or target.stat().st_size != 698560:
             raise SystemExit(f"installed character asset invalid: {target}")
 
+    character_integration = Path(__file__).with_name("apply_character_integration.py")
+    if not character_integration.is_file():
+        raise SystemExit("missing ci/apply_character_integration.py")
+    subprocess.run([sys.executable, str(character_integration)], check=True)
+
+    player = (ROOT / "scripts" / "player_controller.gd").read_text(encoding="utf-8")
+    remote = (ROOT / "scripts" / "together" / "remote_avatar.gd").read_text(encoding="utf-8")
+    bridge = (ROOT / "scripts" / "imported_character_bridge.gd").read_text(encoding="utf-8")
+    for label, source in (("local player", player), ("remote partner", remote)):
+        if "Vector3.ONE * 0.340030" not in source:
+            raise SystemExit(f"{label} missing audited 1.78m rig scale")
+        if "rotation_degrees.y = 180.0" not in source:
+            raise SystemExit(f"{label} missing imported rig forward-axis correction")
+    if "first_person = imported_bridge == null" not in player:
+        raise SystemExit("local camera must prefer 3P only when verified imported rig is available")
+    if '"Work": ["working", "work"]' not in bridge:
+        raise SystemExit("imported rig bridge missing Working animation mapping")
+    if "animation_player.speed_scale = clamp(speed / 3.0" not in bridge:
+        raise SystemExit("imported rig bridge missing locomotion playback-rate matching")
+
     relationship = ROOT / "scripts" / "social" / "relationship_citizen.gd"
 
     # GDScript's conditional expression returns an untyped Array here. Assigning
