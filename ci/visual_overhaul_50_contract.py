@@ -17,7 +17,7 @@ def main() -> None:
         "func _soft_ellipsoid(",
         "func _bar_stool(",
         "actual television face",
-        "hotel-style mirror glow",
+        "Hotel-style mirror glow",
         "Warm decorative bulbs",
         "shadow_opacity = 0.48",
     ])
