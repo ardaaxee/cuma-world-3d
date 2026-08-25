@@ -2,7 +2,8 @@ extends Node
 
 var world_scene: Node
 var audit_camera: Camera3D
-var capture_failed := false
+var capture_failed = false
+var live_player: Node3D
 
 func _ready() -> void:
 	var packed = load("res://scenes/main.tscn") as PackedScene
@@ -18,6 +19,7 @@ func _ready() -> void:
 		await get_tree().process_frame
 
 	_assert_city_vehicles_clear_of_home()
+	_assert_live_player_rig()
 
 	# Audit images must show the production art itself, not gameplay HUD/debug labels.
 	_hide_audit_ui(world_scene)
@@ -34,6 +36,7 @@ func _ready() -> void:
 		Vector3(0.0, 1.58, 7.45),
 		Vector3(0.0, 1.48, -3.8)
 	)
+	await _capture_live_player_view()
 	await _capture_view(
 		"living_room",
 		Vector3(-3.45, 1.62, 6.25),
@@ -69,6 +72,43 @@ func _assert_city_vehicles_clear_of_home() -> void:
 		print("CUMA_VEHICLE_SPAWN ", vehicle_name, " pos=", vehicle_3d.global_position, " planar=", "%.2f" % planar_distance)
 		if planar_distance < 12.0:
 			_fail(vehicle_name + " spawned inside/next to the home instead of its city route: " + str(vehicle_3d.global_position))
+
+func _assert_live_player_rig() -> void:
+	var player_node = get_tree().get_first_node_in_group("player")
+	if player_node == null or not (player_node is Node3D):
+		_fail("Main scene did not spawn a live player Node3D")
+		return
+	live_player = player_node as Node3D
+	var imported = live_player.find_child("ImportedCumaGLB", true, false)
+	if imported == null or not (imported is Node3D):
+		_fail("Live player did not use ImportedCumaGLB")
+		return
+	var imported_3d = imported as Node3D
+	var scale_error = (imported_3d.scale - Vector3.ONE * 0.340030).length()
+	var yaw_error = abs(abs(wrapf(imported_3d.rotation_degrees.y, -180.0, 180.0)) - 180.0)
+	print("CUMA_LIVE_RIG scale=", imported_3d.scale, " y=", imported_3d.position.y, " yaw=", imported_3d.rotation_degrees.y)
+	if scale_error > 0.002:
+		_fail("Live imported rig scale drifted from audited 1.78m normalization: " + str(imported_3d.scale))
+	if abs(imported_3d.position.y - (-0.000447)) > 0.003:
+		_fail("Live imported rig floor offset drifted: " + str(imported_3d.position.y))
+	if yaw_error > 0.5:
+		_fail("Live imported rig forward axis is not corrected to -Z: " + str(imported_3d.rotation_degrees.y))
+	var visual = live_player.find_child("CharacterVisual", true, false)
+	if visual == null or not (visual is Node3D) or not (visual as Node3D).visible:
+		_fail("Verified imported rig should default to visible third-person mode")
+
+func _capture_live_player_view() -> void:
+	if live_player == null:
+		return
+	live_player.global_position = Vector3(0.0, 0.02, 5.15)
+	live_player.rotation_degrees.y = 0.0
+	for i in range(3):
+		await get_tree().process_frame
+	await _capture_view(
+		"player_third_person",
+		Vector3(0.0, 1.72, 8.35),
+		Vector3(0.0, 1.02, 5.05)
+	)
 
 func _capture_view(view_name: String, camera_pos: Vector3, target: Vector3) -> void:
 	audit_camera.global_position = camera_pos
