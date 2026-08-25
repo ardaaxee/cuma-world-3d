@@ -41,6 +41,14 @@ def main() -> None:
         "assert 'camera.fov = 60.0' in player",
         "upgrade legacy third-person camera contract to Character 3.0 shoulder framing",
     )
+    replace_exact(
+        visual_test,
+        "assert 'Vector3(0.175, 0.225, 0.17)' in hum",
+        "assert 'Vector3(0.157, 0.218, 0.158)' in hum\n"
+        "assert 'var cadence = lerp(6.0, 9.7, run_blend)' in hum\n"
+        "assert 'turn_rate: float = 0.0' in hum",
+        "upgrade legacy head proportions to Character 3.0 anatomy and locomotion contract",
+    )
 
     print("CUMA TEST CONTRACT UPDATE: PASS")
 
