@@ -8,6 +8,7 @@ from apply_field_ops_60 import main as apply_field_ops_60
 from apply_audio_mix_61 import main as apply_audio_mix_61
 from apply_hud_cleanup_62 import main as apply_hud_cleanup_62
 from apply_field_ui_63 import main as apply_field_ui_63
+from apply_music_center_64 import main as apply_music_center_64
 from apply_visual_overhaul_50 import main as apply_visual_overhaul_50
 from apply_visual_polish_51 import main as apply_visual_polish_51
 from apply_city_visual_52 import main as apply_city_visual_52
@@ -20,6 +21,7 @@ from field_ops_60_contract import main as check_field_ops_60
 from field_ui_63_contract import main as check_field_ui_63
 from hud_cleanup_62_contract import main as check_hud_cleanup_62
 from menu_extras_contract import main as check_menu_extras
+from music_center_64_contract import main as check_music_center_64
 from update_regression_contracts import main as update_regression_contracts
 from visual_overhaul_50_contract import main as check_visual_overhaul_50
 from visual_polish_51_contract import main as check_visual_polish_51
@@ -27,8 +29,8 @@ from visual_polish_51_contract import main as check_visual_polish_51
 
 def main() -> None:
     # Preserve the established gameplay stack, then layer the cinematic shell,
-    # Field Ops spycraft UX, independent audio mixer, clean/compact left HUD,
-    # presentation upgrades and audited high-detail CUMA rig deterministically.
+    # Field Ops spycraft UX, independent mixer + Music Center, clean compact left
+    # HUD, presentation upgrades and audited high-detail CUMA rig deterministically.
     apply_existing_patches()
     update_regression_contracts()
     apply_cinematic_menu()
@@ -37,6 +39,7 @@ def main() -> None:
     apply_audio_mix_61()
     apply_hud_cleanup_62()
     apply_field_ui_63()
+    apply_music_center_64()
     apply_visual_overhaul_50()
     apply_visual_polish_51()
     apply_city_visual_52()
@@ -49,9 +52,10 @@ def main() -> None:
     check_field_ui_63()
     check_hud_cleanup_62()
     check_menu_extras()
+    check_music_center_64()
     check_visual_overhaul_50()
     check_visual_polish_51()
-    print("CI patch layer + cinematic menu + Field Ops 6.0 + Audio Mix 6.1 + HUD 6.2 + Field UI 6.3 + Visual 5.1 + City 5.2 + Character 5.1 complete.")
+    print("CI patch layer + cinematic menu + Field Ops 6.0 + Audio Mix 6.1 + HUD 6.2 + Field UI 6.3 + Music Center 6.4 + Visual 5.1 + City 5.2 + Character 5.1 complete.")
 
 
 if __name__ == "__main__":
