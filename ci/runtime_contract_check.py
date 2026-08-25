@@ -157,11 +157,11 @@ def main() -> None:
     if 'for i in range(11):' in function_body(ultra_home, "_make_interactive_curtain"):
         fail("old bar-like curtain fold loop survived")
 
-    # Round 5: bedroom dusk readability measured from Visual Audit #57.
+    # Round 5: bedroom dusk readability measured from Visual Audit #57 and #61.
     if 'bedroom_light.light_color = Color("ffe5cc")' not in production_home:
         fail("round5 neutral bedroom fill color is missing")
-    if 'bedroom_light.light_energy = 0.82' not in production_home:
-        fail("round5 bedroom fill energy is missing")
+    if 'bedroom_light.light_energy = 0.88' not in production_home:
+        fail("round5 calibrated bedroom fill energy is missing")
     if 'bedroom_light.omni_range = 4.85' not in production_home:
         fail("round5 bedroom fill range is missing")
     if '_emissive(Color("ffe1b4"), 0.72)' not in production_home:
