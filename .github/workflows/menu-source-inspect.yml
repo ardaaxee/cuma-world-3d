@@ -1,0 +1,47 @@
+name: Inspect CUMA WORLD menu integration points
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/menu-source-inspect.yml'
+      - 'ci/**'
+
+permissions:
+  contents: read
+
+jobs:
+  inspect-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip -d game
+          test -f game/project.godot
+      - name: Print integration map
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo '===== FILE MAP ====='
+          find game/scripts -maxdepth 3 -type f | sort | grep -Ei 'main|player|mobile|network|together|setting|audio|game_state|save|quality|graphic|world|character' | head -220
+          echo '===== MAIN READY/SPAWN ====='
+          grep -nE 'func _ready|func _spawn_player|func _spawn_mobile_controls|func _connect_network|func _build_phone|func _build_.*hud|GameState|NetworkManager' game/scripts/main.gd | head -180
+          echo '===== MOBILE MULTIPLAYER ====='
+          grep -nE 'together|room|host|join|create|code|NetworkManager|func _on_' game/scripts/mobile_controls.gd | head -260
+          echo '===== NETWORK API ====='
+          NETWORK_FILE="$(find game/scripts -type f -name '*.gd' -print | xargs grep -Il 'class_name NetworkManager\|/root/NetworkManager\|create.*room\|join.*room' | head -1 || true)"
+          if [ -n "$NETWORK_FILE" ]; then
+            echo "NETWORK_FILE=$NETWORK_FILE"
+            grep -nE '^func |signal |room|host|join|create|code|relay|peer' "$NETWORK_FILE" | head -320
+          fi
+          echo '===== GAME STATE SAVE ====='
+          grep -nE 'SAVE_PATH|LEGACY_SAVE|func .*save|func .*load|ConfigFile|last|played|world_name|time_of_day' game/scripts/game_state.gd | head -260
+          echo '===== PLAYER CAMERA/CHARACTER ====='
+          grep -nE 'func _ready|Camera3D|camera|ImportedCuma|cuma.glb|visual_root|set_process|set_physics_process|first_person|third_person' game/scripts/player_controller.gd | head -320
+          echo '===== PROJECT AUTOLOAD ====='
+          grep -nE '^\[autoload\]|GameState|Network|Audio|Settings|Quality' game/project.godot | head -180
