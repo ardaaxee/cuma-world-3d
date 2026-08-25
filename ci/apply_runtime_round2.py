@@ -34,6 +34,11 @@ def main() -> None:
         if not target.is_file() or target.stat().st_size != 698560:
             raise SystemExit(f"installed character asset invalid: {target}")
 
+    inspector = Path(__file__).with_name("inspect_imported_character.py")
+    if not inspector.is_file():
+        raise SystemExit("missing ci/inspect_imported_character.py")
+    subprocess.run([sys.executable, str(inspector)], check=True)
+
     character_integration = Path(__file__).with_name("apply_character_integration.py")
     if not character_integration.is_file():
         raise SystemExit("missing ci/apply_character_integration.py")
