@@ -6,6 +6,8 @@ on:
     paths:
       - '.github/workflows/high-character-branch-audit.yml'
       - 'ci/high_character_probe_marker.txt'
+      - 'ci/high_character_orientation_capture.gd'
+      - 'ci/high_character_orientation_capture.tscn'
 
 permissions:
   contents: read
@@ -67,6 +69,19 @@ jobs:
           grep -q 'CUMA_HIGH_CHARACTER_AUDIT_READY' /tmp/high-character.log
           test -s build/visual_character_high_idle.png
           test -s build/visual_character_high_walk.png
+      - name: Capture orientation candidates
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ../ci/high_character_orientation_capture.gd ./ci_high_character_orientation_capture.gd
+          cp ../ci/high_character_orientation_capture.tscn ./ci_high_character_orientation_capture.tscn
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_high_character_orientation_capture.tscn 2>&1 | tee /tmp/high-orientation.log
+          grep -q 'CUMA_HIGH_ORIENTATION_READY' /tmp/high-orientation.log
+          test "$(find build -name 'visual_high_yaw_*.png' | wc -l)" -eq 4
       - name: Upload high character renders
         uses: actions/upload-artifact@v4
         with:
@@ -74,5 +89,7 @@ jobs:
           path: |
             game/build/visual_character_high_idle.png
             game/build/visual_character_high_walk.png
+            game/build/visual_high_yaw_*.png
             /tmp/high-character.log
+            /tmp/high-orientation.log
           retention-days: 5
