@@ -91,6 +91,7 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
+    run_ci_script("prepare_intelligence_70_patch.py")
     run_ci_script("apply_intelligence_stealth_70.py")
     run_ci_script("apply_cloudflare_foundation.py")
     print("CUMA RUNTIME ROUND2 PATCH: PASS")
