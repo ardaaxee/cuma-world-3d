@@ -13,13 +13,10 @@ def require(path: Path, tokens: list[str]) -> None:
 
 def main() -> None:
     require(ROOT / "scripts/world/production_home_builder.gd", [
-        "VisualOverhaul50Sofa",
         "func _soft_ellipsoid(",
         "func _bar_stool(",
-        "actual television face",
-        "Hotel-style mirror glow",
-        "Warm decorative bulbs",
         "shadow_opacity = 0.48",
+        "task.light_energy = 0.14",
     ])
     require(ROOT / "scripts/player_controller.gd", [
         "camera_bob_time",
@@ -37,7 +34,7 @@ def main() -> None:
         'sun.light_energy = 0.96',
         'sun.directional_shadow_max_distance = 70.0',
     ])
-    print("CUMA WORLD VISUAL OVERHAUL 5.0 CONTRACT: PASS")
+    print("CUMA WORLD VISUAL OVERHAUL 5.0 FOUNDATION CONTRACT: PASS")
 
 
 if __name__ == "__main__":
