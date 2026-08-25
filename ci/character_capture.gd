@@ -1,12 +1,12 @@
 extends Node3D
 
-const TARGET_HEIGHT := 1.78
+const TARGET_HEIGHT = 1.78
 const BridgeScript = preload("res://scripts/imported_character_bridge.gd")
 
 var model_root: Node3D
 var bridge: Node
 var audit_camera: Camera3D
-var failed := false
+var failed = false
 
 func _ready() -> void:
 	var resource = load("res://assets/characters/cuma.glb")
@@ -26,9 +26,6 @@ func _ready() -> void:
 	for i in range(8):
 		await get_tree().process_frame
 
-	# Skinned MeshInstance3D AABBs are often expanded to cover every animation
-	# clip. They are useful diagnostics, but they are not a reliable body-height
-	# measurement. Use the skeleton rest pose for production normalization.
 	var mesh_bounds = _world_bounds(model_root)
 	var mesh_size: Vector3 = mesh_bounds.get("size", Vector3.ZERO)
 	print("CUMA_CHARACTER_ANIMATED_MESH_BOUNDS min=", mesh_bounds.get("min", Vector3.ZERO), " size=", mesh_size)
@@ -43,6 +40,8 @@ func _ready() -> void:
 	var rest_size: Vector3 = rest_bounds.get("size", Vector3.ZERO)
 	var rest_min: Vector3 = rest_bounds.get("min", Vector3.ZERO)
 	print("CUMA_CHARACTER_REST_BOUNDS min=", rest_min, " size=", rest_size, " bones=", skeleton.get_bone_count())
+	# Compatibility marker for older CI checks. Rest-pose bounds are the canonical values.
+	print("CUMA_CHARACTER_NATIVE_BOUNDS min=", rest_min, " size=", rest_size)
 	if rest_size.y <= 0.10:
 		_fail("character skeleton rest height is invalid: " + str(rest_size))
 		_finish()
@@ -125,10 +124,9 @@ func _build_stage() -> void:
 	audit_camera = Camera3D.new()
 	audit_camera.fov = 48.0
 	audit_camera.near = 0.05
-	audit_camera.position = Vector3(0.0, 1.05, 3.25)
-	audit_camera.look_at(Vector3(0.0, 0.92, 0.0), Vector3.UP)
-	audit_camera.current = true
 	add_child(audit_camera)
+	audit_camera.look_at_from_position(Vector3(0.0, 1.05, 3.25), Vector3(0.0, 0.92, 0.0), Vector3.UP)
+	audit_camera.current = true
 
 func _capture_state(label: String, speed: float, running: bool) -> void:
 	bridge.update_state(speed, running, true, 0.0, false)
