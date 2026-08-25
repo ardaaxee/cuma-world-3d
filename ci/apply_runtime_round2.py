@@ -52,8 +52,10 @@ def main() -> None:
             raise SystemExit(f"{label} missing audited 1.78m rig scale")
         if "rotation_degrees.y = 180.0" not in source:
             raise SystemExit(f"{label} missing imported rig forward-axis correction")
-    if "first_person = imported_bridge == null" not in player:
-        raise SystemExit("local camera must prefer 3P only when verified imported rig is available")
+    if "first_person = true" not in player:
+        raise SystemExit("local camera must keep first-person production default until 3P art passes quality gate")
+    if "first_person = imported_bridge == null" in player:
+        raise SystemExit("low-poly imported rig must not force third-person on startup")
     if '"Work": ["working", "work"]' not in bridge:
         raise SystemExit("imported rig bridge missing Working animation mapping")
     if "animation_player.speed_scale = clamp(speed / 3.0" not in bridge:
