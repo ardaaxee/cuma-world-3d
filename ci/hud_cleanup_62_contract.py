@@ -18,6 +18,8 @@ def main() -> None:
         'func _on_phone() -> void:',
         '"SESSİZ TESLİMAT" in value',
         'value.begins_with("HAVA")',
+        'find_children("*", "RichTextLabel", true, false)',
+        '"BRIEFING" in value',
         'hidden_button_texts = ["MENÜ", "SAVE", "OBS", "CAM", "EK", "FX", "2P", "FOTO", "PHONE"]',
         'is_ancestor_of(node)',
     ])
