@@ -52,6 +52,8 @@ jobs:
             game/scripts/mobile_controls.gd
             game/scripts/player_controller.gd
             game/scripts/network_manager.gd
+            game/scripts/ui/cinematic_main_menu.gd
+            game/scripts/ui/menu_character.gd
             game/project.godot
             game/default_bus_layout.tres
           if-no-files-found: warn
