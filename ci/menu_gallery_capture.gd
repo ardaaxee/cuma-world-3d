@@ -70,11 +70,12 @@ func _ready() -> void:
 		await _capture_view("11_kitchen", Vector3(3.35, 1.62, 5.70), Vector3(7.25, 1.08, 4.45))
 		await _capture_view("12_bedroom", Vector3(-3.55, 1.62, -5.40), Vector3(-7.15, 0.95, -6.25))
 		await _capture_player(player)
-		# Final 5.1 showcase angles are placed inside each room so nearby partitions
+		# Final showcase angles are placed inside each room so nearby partitions
 		# cannot block the subject and give a misleading quality read.
 		await _capture_view("14_bathroom", Vector3(4.15, 1.55, 6.55), Vector3(8.15, 1.05, 7.85))
 		await _capture_view("15_balcony", Vector3(-2.15, 1.62, 10.05), Vector3(-7.25, 0.95, 11.55))
 		await _capture_view("16_entry", Vector3(0.0, 1.58, 5.80), Vector3(0.0, 1.30, 8.45))
+		await _capture_view("17_city_center", Vector3(145.0, 4.8, 137.0), Vector3(169.0, 1.20, 125.5))
 
 	if failed:
 		get_tree().quit(2)
