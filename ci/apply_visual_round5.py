@@ -24,9 +24,10 @@ def main() -> None:
 
     production = ROOT / "scripts" / "world" / "production_home_builder.gd"
 
-    # Visual Audit #57 runs at the game's default 17:30 world time. Bedroom mean
-    # luminance measured ~0.192 versus ~0.289 in the living room. Do not flatten
-    # the scene by globally raising exposure; rebalance the local practical fill.
+    # Visual Audit #57 ran at the game's default 17:30 world time and measured
+    # bedroom mean luminance ~0.192. Round 5A reached 0.2288, only 0.0012 below
+    # the 0.23 production guardrail, so keep the guardrail and add a small safety
+    # margin locally rather than weakening the quality threshold or global exposure.
     replace_exact(
         production,
         'bedroom_light.light_color = Color("ffd7ad")',
@@ -36,8 +37,8 @@ def main() -> None:
     replace_exact(
         production,
         'bedroom_light.light_energy = 0.66',
-        'bedroom_light.light_energy = 0.82',
-        "raise bedroom dusk fill to readable production level",
+        'bedroom_light.light_energy = 0.88',
+        "raise bedroom dusk fill with guardrail margin",
     )
     replace_exact(
         production,
