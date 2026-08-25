@@ -1,0 +1,78 @@
+name: Audit CUMA high character on branch
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/high-character-branch-audit.yml'
+      - 'ci/high_character_probe_marker.txt'
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract and patch production source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          python ci/apply_ci_patches.py
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot"
+          ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/${ASSET}"
+          curl -fL --retry 3 "$URL" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+      - name: Import project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path game --editor --quit 2>&1 | tee /tmp/high-import.log
+          ! grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/high-import.log
+      - name: Capture high-detail candidate
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          cp ../ci/high_character_capture.gd ./ci_high_character_capture.gd
+          cp ../ci/high_character_capture.tscn ./ci_high_character_capture.tscn
+          mkdir -p build
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_high_character_capture.tscn 2>&1 | tee /tmp/high-character.log
+          grep -q 'CUMA_HIGH_CHARACTER_AUDIT_READY' /tmp/high-character.log
+          test -s build/visual_character_high_idle.png
+          test -s build/visual_character_high_walk.png
+      - name: Upload high character renders
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-high-character-audit
+          path: |
+            game/build/visual_character_high_idle.png
+            game/build/visual_character_high_walk.png
+            /tmp/high-character.log
+          retention-days: 5
