@@ -84,12 +84,14 @@ def main() -> None:
     require(
         character,
         [
+            'res://assets/characters/cuma_high.glb',
             'res://assets/characters/cuma.glb',
             'res://scripts/imported_character_bridge.gd',
             'res://scripts/character/procedural_humanoid.gd',
-            'imported.scale = Vector3.ONE * 0.340030',
-            'imported.position.y = -0.000447',
+            'imported.scale = Vector3.ONE * 1.002724',
+            'imported.position.y = -0.000444',
             'imported.rotation_degrees.y = 180.0',
+            'imported.scale = Vector3.ONE * 0.340030',
             'procedural_rig.call("update_pose", delta, 0.0, false, 0.0, true, false, 0.0)',
             '"formal": true',
             'gs.get_character_palette()',
