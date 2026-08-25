@@ -50,6 +50,15 @@ def main() -> None:
         "upgrade legacy head proportions to Character 3.0 anatomy and locomotion contract",
     )
 
+    crime_test = ROOT / "tests" / "crime_justice_smoke.py"
+    replace_exact(
+        crime_test,
+        "assert 'SAVE_PATH := \"user://cuma_world_save_v19.cfg\"' in gs",
+        "assert 'SAVE_PATH := \"user://cuma_world_save_v70.cfg\"' in gs\n"
+        "assert '\"user://cuma_world_save_v19.cfg\"' in gs",
+        "upgrade Crime 1.9 save contract to active v70 with v19 migration retained",
+    )
+
     print("CUMA TEST CONTRACT UPDATE: PASS")
 
 
