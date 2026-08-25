@@ -39,6 +39,8 @@ jobs:
             game/scripts/world/ultra_home_builder.gd
             game/scripts/world/realism_overhaul.gd
             game/scripts/player_controller.gd
+            game/scripts/imported_character_bridge.gd
+            game/scripts/together/remote_avatar.gd
             game/scripts/mobile_controls.gd
             game/scripts/graphics_manager.gd
             game/scripts/main.gd
