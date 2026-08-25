@@ -1,0 +1,230 @@
+	box.add_child(_label("HIZLI AYARLAR", 28, TEXT))
+	var master_label = _label(_master_volume_text(), 12, TEXT)
+	box.add_child(master_label)
+	var master = HSlider.new()
+	master.min_value = 0.0
+	master.max_value = 100.0
+	master.step = 1.0
+	master.value = master_volume * 100.0
+	master.value_changed.connect(_on_master_volume_changed.bind(master_label))
+	box.add_child(master)
+	var motion = _toggle("AZALTILMIŞ HAREKET", reduced_motion)
+	motion.toggled.connect(_on_reduced_motion_toggled)
+	box.add_child(motion)
+	var close = _button("DÖN", true)
+	close.pressed.connect(_close_dialog_overlay)
+	box.add_child(close)
+	close.grab_focus()
+	if not from_pause:
+		box.add_child(_label("Değişiklikler otomatik kaydedilir.", 11, MUTED))
+
+func _cycle_quality(button: Button) -> void:
+	var gs = get_node_or_null("/root/GameState")
+	if gs != null and gs.has_method("cycle_quality"):
+		var profile = str(gs.call("cycle_quality"))
+		button.text = "KALİTE  ·  " + profile
+		_play_player(confirm_player, 0.76)
+		_haptic(12)
+
+func _on_master_volume_changed(value: float, label: Label) -> void:
+	master_volume = clamp(value / 100.0, 0.0, 1.0)
+	label.text = _master_volume_text()
+	_apply_master_volume()
+	_save_preferences()
+
+func _on_menu_sfx_toggled(enabled: bool) -> void:
+	menu_sfx_enabled = enabled
+	_save_preferences()
+	if enabled:
+		_play_player(confirm_player, 0.74)
+
+func _on_ui_sfx_changed(value: float, label: Label) -> void:
+	ui_sfx_volume = clamp(value / 100.0, 0.0, 1.0)
+	label.text = _ui_sfx_text()
+	_apply_ui_player_volume()
+	_save_preferences()
+
+func _on_look_sensitivity_changed(value: float, label: Label) -> void:
+	look_sensitivity = clamp(value / 100.0, 0.5, 1.8)
+	label.text = _look_sensitivity_text()
+	_save_preferences()
+	_apply_player_preferences()
+
+func _on_invert_y_toggled(enabled: bool) -> void:
+	invert_look_y = enabled
+	_save_preferences()
+	_apply_player_preferences()
+
+func _on_reduced_motion_toggled(enabled: bool) -> void:
+	reduced_motion = enabled
+	_save_preferences()
+	_apply_reduced_motion()
+
+func _on_haptics_toggled(enabled: bool) -> void:
+	haptics_enabled = enabled
+	_save_preferences()
+	if enabled:
+		_haptic(18)
+
+func _apply_reduced_motion() -> void:
+	if menu_root == null:
+		return
+	var state = int(menu_root.get("state"))
+	if state not in [STATE_TRANSITION, STATE_PLAYING, STATE_PAUSED]:
+		menu_root.set("camera_updates_enabled", not reduced_motion)
+
+func _apply_player_preferences() -> void:
+	var player = get_tree().get_first_node_in_group("player")
+	if player != null and player.has_method("set_look_preferences"):
+		player.call("set_look_preferences", look_sensitivity, invert_look_y)
+
+func _reset_preferences() -> void:
+	master_volume = 1.0
+	ui_sfx_volume = 0.72
+	menu_sfx_enabled = true
+	reduced_motion = false
+	haptics_enabled = true
+	look_sensitivity = 1.0
+	invert_look_y = false
+	_apply_master_volume()
+	_apply_ui_player_volume()
+	_apply_reduced_motion()
+	_apply_player_preferences()
+	_save_preferences()
+	var state = int(menu_root.get("state")) if menu_root != null else -1
+	decorate_state(state)
+	_haptic(20)
+
+func _back_to_main_menu() -> void:
+	if menu_root != null:
+		menu_root.call("_set_state", STATE_MAIN_MENU)
+	_play_player(back_player, 0.72)
+
+func _load_preferences() -> void:
+	var err = prefs.load(PREF_PATH)
+	if err != OK:
+		prefs = ConfigFile.new()
+	master_volume = clamp(float(prefs.get_value("audio", "master_volume", 1.0)), 0.0, 1.0)
+	ui_sfx_volume = clamp(float(prefs.get_value("audio", "ui_sfx_volume", 0.72)), 0.0, 1.0)
+	menu_sfx_enabled = bool(prefs.get_value("audio", "menu_sfx", true))
+	reduced_motion = bool(prefs.get_value("accessibility", "reduced_motion", false))
+	haptics_enabled = bool(prefs.get_value("accessibility", "haptics", true))
+	look_sensitivity = clamp(float(prefs.get_value("controls", "look_sensitivity", 1.0)), 0.5, 1.8)
+	invert_look_y = bool(prefs.get_value("controls", "invert_y", false))
+
+func _save_preferences() -> void:
+	prefs.set_value("audio", "master_volume", master_volume)
+	prefs.set_value("audio", "ui_sfx_volume", ui_sfx_volume)
+	prefs.set_value("audio", "menu_sfx", menu_sfx_enabled)
+	prefs.set_value("accessibility", "reduced_motion", reduced_motion)
+	prefs.set_value("accessibility", "haptics", haptics_enabled)
+	prefs.set_value("controls", "look_sensitivity", look_sensitivity)
+	prefs.set_value("controls", "invert_y", invert_look_y)
+	prefs.save(PREF_PATH)
+
+func _apply_master_volume() -> void:
+	var master_bus = AudioServer.get_bus_index("Master")
+	if master_bus < 0:
+		return
+	AudioServer.set_bus_volume_db(master_bus, linear_to_db(max(master_volume, 0.0001)))
+	AudioServer.set_bus_mute(master_bus, master_volume <= 0.001)
+
+func _build_ui_audio() -> void:
+	focus_player = _audio_player("MenuFocusSFX", _make_tone(520.0, 0.050))
+	confirm_player = _audio_player("MenuConfirmSFX", _make_tone(720.0, 0.085))
+	back_player = _audio_player("MenuBackSFX", _make_tone(360.0, 0.075))
+	transition_player = _audio_player("MenuTransitionSFX", _make_chord_tone(196.0, 293.66, 0.21))
+	_apply_ui_player_volume()
+
+func _audio_player(node_name: String, stream: AudioStream) -> AudioStreamPlayer:
+	var player = AudioStreamPlayer.new()
+	player.name = node_name
+	player.stream = stream
+	player.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(player)
+	return player
+
+func _make_tone(frequency: float, seconds: float) -> AudioStreamWAV:
+	return _make_chord_tone(frequency, 0.0, seconds)
+
+func _make_chord_tone(frequency_a: float, frequency_b: float, seconds: float) -> AudioStreamWAV:
+	var mix_rate = 22050
+	var frame_count = int(float(mix_rate) * seconds)
+	var data = PackedByteArray()
+	data.resize(frame_count * 2)
+	for i in range(frame_count):
+		var t = float(i) / float(mix_rate)
+		var envelope = pow(1.0 - float(i) / max(1.0, float(frame_count - 1)), 2.2)
+		var wave = sin(TAU * frequency_a * t)
+		if frequency_b > 1.0:
+			wave = (wave + sin(TAU * frequency_b * t) * 0.58) / 1.58
+		var sample = int(clamp(wave * envelope * 0.22, -1.0, 1.0) * 32767.0)
+		data.encode_s16(i * 2, sample)
+	var wav = AudioStreamWAV.new()
+	wav.format = AudioStreamWAV.FORMAT_16_BITS
+	wav.mix_rate = mix_rate
+	wav.stereo = false
+	wav.data = data
+	return wav
+
+func _apply_ui_player_volume() -> void:
+	var db = linear_to_db(max(ui_sfx_volume, 0.0001)) - 7.0
+	for player in [focus_player, confirm_player, back_player, transition_player]:
+		if player != null:
+			player.volume_db = db
+
+func _play_player(player: AudioStreamPlayer, pitch: float = 1.0) -> void:
+	if not menu_sfx_enabled or player == null or ui_sfx_volume <= 0.001:
+		return
+	player.pitch_scale = pitch
+	player.play()
+
+func _hook_menu_controls() -> void:
+	if menu_root == null or gameplay_started:
+		return
+	var safe = menu_root.get("safe_root")
+	if not (safe is Control):
+		return
+	var buttons = safe.find_children("*", "Button", true, false)
+	for node in buttons:
+		if not (node is Button):
+			continue
+		var button = node as Button
+		if button.has_meta("cuma_extras_hooked"):
+			continue
+		button.set_meta("cuma_extras_hooked", true)
+		button.focus_entered.connect(_on_control_focus)
+		button.mouse_entered.connect(_on_control_focus)
+		button.pressed.connect(_on_control_pressed.bind(button))
+
+func _on_control_focus() -> void:
+	_play_player(focus_player, 0.94 + randf_range(-0.025, 0.025))
+
+func _on_control_pressed(button: Button) -> void:
+	var text = button.text.to_upper()
+	if "GERİ" in text or "KAPAT" in text or "ÇIK" in text:
+		_play_player(back_player, 0.72)
+	else:
+		_play_player(confirm_player, 0.78)
+	_haptic(10)
+
+func _haptic(milliseconds: int) -> void:
+	if haptics_enabled and OS.has_feature("mobile"):
+		Input.vibrate_handheld(milliseconds)
+
+func _set_gameplay_hud_visible(value: bool) -> void:
+	var mobile = get_tree().root.find_child("MobileControls", true, false)
+	if mobile is CanvasLayer:
+		mobile.visible = value
+
+func _build_confirm_dialog(title: String, message: String, action: Callable) -> void:
+	if dialog_overlay != null:
+		return
+	dialog_overlay = CanvasLayer.new()
+	dialog_overlay.name = "CumaConfirmDialog"
+	dialog_overlay.layer = 260
+	dialog_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(dialog_overlay)
+	var dim = ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.0, 0.0, 0.0, 0.72)
