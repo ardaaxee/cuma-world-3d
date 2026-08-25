@@ -12,7 +12,7 @@ LICENSE = ROOT / "assets" / "characters" / "CUMA_HIGH_LICENSE.txt"
 PINNED_COMMIT = "3f97faf85e46d2f9a122b0a8b8d3ccc0af598f91"
 SOURCE_PATH = "packages/assets/library/suited.glb"
 SOURCE_URL = f"https://raw.githubusercontent.com/kunalkushwaha/vsim/{PINNED_COMMIT}/{SOURCE_PATH}"
-EXPECTED_SIZE = 6_673_192
+EXPECTED_SIZE = 6_675_064
 EXPECTED_GIT_BLOB_SHA1 = "9548ee77781f96f3579dd41c21e0c4c2b092486c"
 
 
