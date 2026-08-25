@@ -31,6 +31,7 @@ def main() -> None:
         Path(__file__).with_name("apply_visual_finish.py"),
         Path(__file__).with_name("apply_visual_round3.py"),
         Path(__file__).with_name("apply_visual_round4.py"),
+        Path(__file__).with_name("apply_visual_round5.py"),
     ]
     for layer in layers:
         if not layer.is_file():
@@ -141,8 +142,6 @@ def main() -> None:
         fail("round4 corridor fixture size correction is missing")
     if 'Vector3(2.34, 0.17, 3.12)' not in production_home:
         fail("round4 bedroom frame scaling is missing")
-    if 'bedroom_light.light_energy = 0.66' not in production_home:
-        fail("bedroom fill correction is missing")
     if 'Vector3(0.48, 0.38, 0.14)' not in production_home:
         fail("round4 compact sofa pillows are missing")
     if 'living_fill.light_energy = 0.56' not in production_home:
@@ -157,6 +156,22 @@ def main() -> None:
         fail("curtain cloth panel correction is missing")
     if 'for i in range(11):' in function_body(ultra_home, "_make_interactive_curtain"):
         fail("old bar-like curtain fold loop survived")
+
+    # Round 5: bedroom dusk readability measured from Visual Audit #57.
+    if 'bedroom_light.light_color = Color("ffe5cc")' not in production_home:
+        fail("round5 neutral bedroom fill color is missing")
+    if 'bedroom_light.light_energy = 0.82' not in production_home:
+        fail("round5 bedroom fill energy is missing")
+    if 'bedroom_light.omni_range = 4.85' not in production_home:
+        fail("round5 bedroom fill range is missing")
+    if '_emissive(Color("ffe1b4"), 0.72)' not in production_home:
+        fail("round5 bedside bulb emission clamp is missing")
+    if 'Color("62666d")' not in production_home:
+        fail("round5 headboard value separation is missing")
+    if 'Color("98735a")' not in production_home:
+        fail("round5 wardrobe value separation is missing")
+    if 'Color("b5a08e")' not in production_home:
+        fail("round5 bedding accent separation is missing")
 
     # Best-effort native-node/script mismatch scan.
     bases: dict[str, str] = {}
