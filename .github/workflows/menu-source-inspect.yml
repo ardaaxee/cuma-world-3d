@@ -1,7 +1,8 @@
 name: Inspect CUMA WORLD menu integration points
 
 on:
-  pull_request:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
     paths:
       - '.github/workflows/menu-source-inspect.yml'
       - 'ci/**'
@@ -34,11 +35,10 @@ jobs:
           echo '===== MOBILE MULTIPLAYER ====='
           grep -nE 'together|room|host|join|create|code|NetworkManager|func _on_' game/scripts/mobile_controls.gd | head -260
           echo '===== NETWORK API ====='
-          NETWORK_FILE="$(find game/scripts -type f -name '*.gd' -print | xargs grep -Il 'class_name NetworkManager\|/root/NetworkManager\|create.*room\|join.*room' | head -1 || true)"
-          if [ -n "$NETWORK_FILE" ]; then
-            echo "NETWORK_FILE=$NETWORK_FILE"
-            grep -nE '^func |signal |room|host|join|create|code|relay|peer' "$NETWORK_FILE" | head -320
-          fi
+          for NETWORK_FILE in $(find game/scripts -type f -name '*.gd' -print | xargs grep -Il 'NetworkManager\|create_room\|join_room\|host_room\|room_code' || true); do
+            echo "--- $NETWORK_FILE ---"
+            grep -nE '^func |signal |room|host|join|create|code|relay|peer' "$NETWORK_FILE" | head -320 || true
+          done
           echo '===== GAME STATE SAVE ====='
           grep -nE 'SAVE_PATH|LEGACY_SAVE|func .*save|func .*load|ConfigFile|last|played|world_name|time_of_day' game/scripts/game_state.gd | head -260
           echo '===== PLAYER CAMERA/CHARACTER ====='
