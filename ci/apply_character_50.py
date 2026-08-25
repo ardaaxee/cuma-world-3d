@@ -58,13 +58,11 @@ def normalize(path: Path) -> None:
 
 def main() -> None:
     player = ROOT / "scripts/player_controller.gd"
-    remote = ROOT / "scripts/together/remote_avatar.gd"
     menu = ROOT / "scripts/ui/menu_character.gd"
+    # Partner uses its own partner.glb slot. Do not replace it with CUMA's male rig.
     patch_runtime_character(player)
-    patch_runtime_character(remote)
     patch_menu_character()
     normalize(player)
-    normalize(remote)
     normalize(menu)
     print("CUMA CHARACTER 5.0 HIGH-DETAIL SLOT: PASS")
 
