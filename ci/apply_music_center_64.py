@@ -85,7 +85,7 @@ def main() -> None:
 	music_panel_mode_label = _label("", 10, MUTED)
 	music_panel_mode_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(music_panel_mode_label)
-	box.add_child(_label("Özel parçalar: %d  ·  res://audio/music + user://music" % external_tracks.size(), 9, Color(MUTED, 0.80)))
+	box.add_child(_label("Özel parçalar: %d  ·  paket + kullanıcı müzik klasörü" % external_tracks.size(), 9, Color(MUTED, 0.80)))
 	var row = GridContainer.new()
 	row.columns = 3
 	row.add_theme_constant_override("h_separation", 5)
