@@ -26,10 +26,10 @@ def main() -> None:
     replace_exact(
         production_test,
         "assert 'first_person = true' in player",
-        "assert 'first_person = imported_bridge == null' in player\n"
+        "assert 'first_person = true' in player\n"
         "assert 'Vector3.ONE * 0.340030' in player\n"
         "assert 'rotation_degrees.y = 180.0' in player",
-        "replace obsolete always-first-person assertion with verified-rig camera and scale contracts",
+        "keep first-person default and add audited live-rig scale/yaw contracts",
     )
 
     print("CUMA TEST CONTRACT UPDATE: PASS")
