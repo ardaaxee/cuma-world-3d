@@ -108,7 +108,7 @@ jobs:
           test -s build/visual_bedroom.png
           rm -f ci_visual_capture.gd ci_visual_capture.tscn
 
-      - name: Audit rigged character in Godot
+      - name: Audit current character bases in Godot
         working-directory: game
         shell: bash
         run: |
@@ -125,7 +125,27 @@ jobs:
           grep -q 'CUMA_CHARACTER_RECOMMENDED_SCALE' /tmp/character-capture.log
           test -s build/visual_character_idle.png
           test -s build/visual_character_walk.png
+          test -s build/visual_character_procedural_idle.png
+          test -s build/visual_character_procedural_walk.png
           rm -f ci_character_capture.gd ci_character_capture.tscn
+
+      - name: Audit high-detail MakeHuman candidate in Godot
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ../ci/high_character_capture.gd ./ci_high_character_capture.gd
+          cp ../ci/high_character_capture.tscn ./ci_high_character_capture.tscn
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_high_character_capture.tscn 2>&1 | tee /tmp/high-character-capture.log
+          grep -q 'CUMA_HIGH_CHARACTER_AUDIT_READY' /tmp/high-character-capture.log
+          grep -q 'CUMA_HIGH_GODOT_REST' /tmp/high-character-capture.log
+          grep -q 'CUMA_HIGH_GODOT_ANIMATIONS' /tmp/high-character-capture.log
+          test -s build/visual_character_high_idle.png
+          test -s build/visual_character_high_walk.png
+          rm -f ci_high_character_capture.gd ci_high_character_capture.tscn
 
       - name: Upload visual audit artifact
         uses: actions/upload-artifact@v4
@@ -144,7 +164,7 @@ jobs:
           gh issue create \
             --repo "$GITHUB_REPOSITORY" \
             --title "Visual audit ready #${GITHUB_RUN_NUMBER}" \
-            --body "Rendered corridor/living room/kitchen/bedroom plus rigged character Idle/Walk audit images are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
+            --body "Rendered production home plus current/procedural/high-detail Character 3.0 comparisons are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
 
       - name: Upload visual diagnostics
         if: always()
@@ -155,6 +175,7 @@ jobs:
             /tmp/visual-import.log
             /tmp/visual-capture.log
             /tmp/character-capture.log
+            /tmp/high-character-capture.log
           if-no-files-found: ignore
           retention-days: 7
 
@@ -171,7 +192,7 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo
             echo '```text'
-            tail -n 160 /tmp/character-capture.log 2>/dev/null || tail -n 160 /tmp/visual-capture.log 2>/dev/null || tail -n 160 /tmp/visual-import.log 2>/dev/null || true
+            tail -n 180 /tmp/high-character-capture.log 2>/dev/null || tail -n 180 /tmp/character-capture.log 2>/dev/null || tail -n 180 /tmp/visual-capture.log 2>/dev/null || tail -n 180 /tmp/visual-import.log 2>/dev/null || true
             echo '```'
           } > /tmp/visual-failure.md
           gh issue create \
