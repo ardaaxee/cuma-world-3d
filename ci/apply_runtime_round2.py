@@ -31,7 +31,6 @@ def main() -> None:
     if not ROOT.is_dir():
         raise SystemExit(f"game directory not found: {ROOT}")
 
-    # LOD1/fallback rig currently used by gameplay.
     run_ci_script("install_character_assets.py")
     for name in ("cuma.glb", "partner.glb"):
         target = ROOT / "assets" / "characters" / name
@@ -39,11 +38,9 @@ def main() -> None:
             raise SystemExit(f"installed character asset invalid: {target}")
     run_ci_script("inspect_imported_character.py")
 
-    # Character 3.0 LOD0 candidate. It is installed and audited, but not promoted to
-    # gameplay until the Godot Character Visual Audit proves the mobile-quality gain.
     run_ci_script("install_high_character.py")
     high_target = ROOT / "assets" / "characters" / "cuma_high.glb"
-    if not high_target.is_file() or high_target.stat().st_size != 6_673_192:
+    if not high_target.is_file() or high_target.stat().st_size != 6_675_064:
         raise SystemExit(f"high-detail character candidate invalid: {high_target}")
     run_ci_script("inspect_high_character.py")
 
@@ -69,8 +66,6 @@ def main() -> None:
     if "animation_player.speed_scale = clamp(speed / 3.0" not in bridge:
         raise SystemExit("imported rig bridge missing locomotion playback-rate matching")
 
-    # Character 3.0 contracts: high-level cinematic character language inspired by
-    # premium third-person spy games, without copying any copyrighted likeness/assets.
     if '"formal": true' not in player or '"shirt": Color("ece9e2")' not in player:
         raise SystemExit("Cuma premium formal profile is missing")
     if 'camera.position = Vector3(0.48, 0.08, 0.0)' not in player:
@@ -96,8 +91,6 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
-    # Intelligence 7.0 extends the existing player/NPC/save/mobile systems after
-    # their runtime compatibility patches have been applied.
     run_ci_script("apply_intelligence_stealth_70.py")
     run_ci_script("apply_cloudflare_foundation.py")
     print("CUMA RUNTIME ROUND2 PATCH: PASS")
