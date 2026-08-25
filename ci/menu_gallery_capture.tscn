@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource path="res://ci_menu_gallery_capture.gd" type="Script" id="1"]
+
+[node name="CumaMenuGalleryCapture" type="Node"]
+script = ExtResource("1")
