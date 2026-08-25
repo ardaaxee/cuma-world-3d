@@ -96,6 +96,9 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
+    # Intelligence 7.0 extends the existing player/NPC/save/mobile systems after
+    # their runtime compatibility patches have been applied.
+    run_ci_script("apply_intelligence_stealth_70.py")
     run_ci_script("apply_cloudflare_foundation.py")
     print("CUMA RUNTIME ROUND2 PATCH: PASS")
 
