@@ -51,6 +51,22 @@ func _ready() -> void:
 				field_ops.call("_toggle_left_hud")
 				for i in range(5):
 					await get_tree().process_frame
+			if field_ops.has_method("_toggle_tools"):
+				field_ops.call("_toggle_tools")
+				for i in range(8):
+					await get_tree().process_frame
+				await _capture("20_field_ops_tools")
+				field_ops.call("_toggle_tools")
+				for i in range(4):
+					await get_tree().process_frame
+			if field_ops.has_method("_toggle_music_center"):
+				field_ops.call("_toggle_music_center")
+				for i in range(8):
+					await get_tree().process_frame
+				await _capture("21_music_center")
+				field_ops.call("_toggle_music_center")
+				for i in range(4):
+					await get_tree().process_frame
 			if field_ops.has_method("_toggle_dossier"):
 				field_ops.call("_toggle_dossier")
 				for i in range(10):
