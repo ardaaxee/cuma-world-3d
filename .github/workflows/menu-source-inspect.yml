@@ -28,20 +28,31 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo '===== FILE MAP ====='
-          find game/scripts -maxdepth 3 -type f | sort | grep -Ei 'main|player|mobile|network|together|setting|audio|game_state|save|quality|graphic|world|character' | head -220
-          echo '===== MAIN READY/SPAWN ====='
-          grep -nE 'func _ready|func _spawn_player|func _spawn_mobile_controls|func _connect_network|func _build_phone|func _build_.*hud|GameState|NetworkManager' game/scripts/main.gd | head -180
-          echo '===== MOBILE MULTIPLAYER ====='
-          grep -nE 'together|room|host|join|create|code|NetworkManager|func _on_' game/scripts/mobile_controls.gd | head -260
-          echo '===== NETWORK API ====='
-          for NETWORK_FILE in $(find game/scripts -type f -name '*.gd' -print | xargs grep -Il 'NetworkManager\|create_room\|join_room\|host_room\|room_code' || true); do
-            echo "--- $NETWORK_FILE ---"
-            grep -nE '^func |signal |room|host|join|create|code|relay|peer' "$NETWORK_FILE" | head -320 || true
-          done
+          echo '===== MAIN 45-110 ====='
+          sed -n '45,110p' game/scripts/main.gd
+          echo '===== MAIN 315-350 ====='
+          sed -n '315,350p' game/scripts/main.gd
+          echo '===== MAIN 715-790 ====='
+          sed -n '715,790p' game/scripts/main.gd
+          echo '===== MOBILE 1-80 ====='
+          sed -n '1,80p' game/scripts/mobile_controls.gd
+          echo '===== MOBILE 181-260 ====='
+          sed -n '181,260p' game/scripts/mobile_controls.gd
+          echo '===== MOBILE 419-468 ====='
+          sed -n '419,468p' game/scripts/mobile_controls.gd
+          echo '===== NETWORK MANAGER ====='
+          sed -n '1,360p' game/scripts/network_manager.gd
+          echo '===== GRAPHICS MANAGER ====='
+          sed -n '1,320p' game/scripts/graphics_manager.gd
           echo '===== GAME STATE SAVE ====='
-          grep -nE 'SAVE_PATH|LEGACY_SAVE|func .*save|func .*load|ConfigFile|last|played|world_name|time_of_day' game/scripts/game_state.gd | head -260
-          echo '===== PLAYER CAMERA/CHARACTER ====='
-          grep -nE 'func _ready|Camera3D|camera|ImportedCuma|cuma.glb|visual_root|set_process|set_physics_process|first_person|third_person' game/scripts/player_controller.gd | head -320
-          echo '===== PROJECT AUTOLOAD ====='
-          grep -nE '^\[autoload\]|GameState|Network|Audio|Settings|Quality' game/project.godot | head -180
+          sed -n '930,1065p' game/scripts/game_state.gd
+          echo '===== PLAYER 42-185 ====='
+          sed -n '42,185p' game/scripts/player_controller.gd
+          echo '===== PLAYER CUSTOMIZATION ====='
+          sed -n '388,416p' game/scripts/player_controller.gd
+          echo '===== HOME AMBIENCE ====='
+          sed -n '1,280p' game/scripts/world/home_ambience.gd
+          echo '===== CUSTOMIZATION STATION ====='
+          sed -n '1,260p' game/scripts/character/customization_station.gd
+          echo '===== PROJECT ====='
+          sed -n '1,120p' game/project.godot
