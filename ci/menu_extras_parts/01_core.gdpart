@@ -1,0 +1,230 @@
+extends Node
+
+const PREF_PATH := "user://cuma_menu_preferences.cfg"
+const STATE_INTRO := 1
+const STATE_MAIN_MENU := 2
+const STATE_MULTIPLAYER := 3
+const STATE_CHARACTER := 4
+const STATE_WORLD_SELECT := 5
+const STATE_SETTINGS := 6
+const STATE_TRANSITION := 7
+const STATE_PLAYING := 8
+const STATE_PAUSED := 9
+const ACCENT := Color("d9c7a3")
+const TEXT := Color("f3f0e9")
+const MUTED := Color("a8a49b")
+const PANEL := Color(0.018, 0.021, 0.026, 0.94)
+
+var menu_root: Node
+var prefs = ConfigFile.new()
+var last_state = -1
+var hook_accum = 0.0
+var master_volume = 1.0
+var ui_sfx_volume = 0.72
+var menu_sfx_enabled = true
+var reduced_motion = false
+var haptics_enabled = true
+var look_sensitivity = 1.0
+var invert_look_y = false
+var pause_overlay: CanvasLayer
+var dialog_overlay: CanvasLayer
+var advanced_overlay: CanvasLayer
+var gameplay_started = false
+var paused_tree = false
+var focus_player: AudioStreamPlayer
+var confirm_player: AudioStreamPlayer
+var back_player: AudioStreamPlayer
+var transition_player: AudioStreamPlayer
+
+func setup(root: Node) -> void:
+	menu_root = root
+	name = "CinematicMenuExtras"
+	add_to_group("cinematic_menu_extras")
+	process_mode = Node.PROCESS_MODE_ALWAYS
+	_load_preferences()
+	_build_ui_audio()
+	_apply_master_volume()
+	_apply_reduced_motion()
+	set_process(true)
+
+func _process(delta: float) -> void:
+	hook_accum += delta
+	if menu_root == null:
+		return
+	var current_state = int(menu_root.get("state"))
+	if current_state != last_state:
+		last_state = current_state
+		call_deferred("decorate_state", current_state)
+	if hook_accum >= 0.35:
+		hook_accum = 0.0
+		_hook_menu_controls()
+		if current_state in [STATE_MAIN_MENU, STATE_MULTIPLAYER, STATE_SETTINGS]:
+			var safe = menu_root.get("safe_root")
+			if safe is Control and safe.find_child("CumaExtrasMarker", true, false) == null:
+				decorate_state(current_state)
+
+func decorate_state(current_state: int) -> void:
+	if menu_root == null or gameplay_started:
+		return
+	var safe = menu_root.get("safe_root")
+	if not (safe is Control):
+		return
+	_remove_extra_marker(safe)
+	if current_state == STATE_MAIN_MENU:
+		_decorate_main_menu(safe)
+	elif current_state == STATE_MULTIPLAYER:
+		_decorate_multiplayer(safe)
+	elif current_state == STATE_SETTINGS:
+		_build_settings_override(safe)
+	_hook_menu_controls()
+
+func on_gameplay_started() -> void:
+	gameplay_started = true
+	last_state = STATE_PLAYING
+	_apply_player_preferences()
+	if pause_overlay != null:
+		pause_overlay.queue_free()
+		pause_overlay = null
+
+func is_reduced_motion() -> bool:
+	return reduced_motion
+
+func play_transition() -> void:
+	_play_player(transition_player, 0.92)
+	_haptic(22)
+
+func toggle_pause_menu() -> void:
+	if menu_root == null or not gameplay_started:
+		return
+	var current_state = int(menu_root.get("state"))
+	if current_state == STATE_PAUSED:
+		_resume_game()
+	elif current_state == STATE_PLAYING:
+		_pause_game()
+
+func _pause_game() -> void:
+	if pause_overlay != null:
+		return
+	var net = get_node_or_null("/root/NetworkManager")
+	paused_tree = not (net != null and net.has_method("is_online") and bool(net.call("is_online")))
+	var player = get_tree().get_first_node_in_group("player")
+	if player != null:
+		player.set_physics_process(false)
+		player.set_process_unhandled_input(false)
+	_set_gameplay_hud_visible(false)
+	menu_root.set("state", STATE_PAUSED)
+	_build_pause_overlay()
+	if paused_tree:
+		get_tree().paused = true
+	if not OS.has_feature("mobile"):
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	_play_player(back_player, 0.72)
+	_haptic(16)
+
+func _resume_game() -> void:
+	if paused_tree:
+		get_tree().paused = false
+	paused_tree = false
+	if pause_overlay != null:
+		pause_overlay.queue_free()
+		pause_overlay = null
+	var player = get_tree().get_first_node_in_group("player")
+	if player != null:
+		player.set_physics_process(true)
+		player.set_process_unhandled_input(true)
+	_set_gameplay_hud_visible(true)
+	menu_root.set("state", STATE_PLAYING)
+	if not OS.has_feature("mobile"):
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	_play_player(confirm_player, 0.74)
+	_haptic(12)
+
+func _build_pause_overlay() -> void:
+	pause_overlay = CanvasLayer.new()
+	pause_overlay.name = "CumaPauseOverlay"
+	pause_overlay.layer = 220
+	pause_overlay.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(pause_overlay)
+	var dim = ColorRect.new()
+	dim.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	dim.color = Color(0.005, 0.007, 0.010, 0.78)
+	pause_overlay.add_child(dim)
+	var panel = PanelContainer.new()
+	panel.anchor_left = 0.08 if _is_portrait() else 0.06
+	panel.anchor_right = 0.92 if _is_portrait() else 0.42
+	panel.anchor_top = 0.12
+	panel.anchor_bottom = 0.88
+	panel.add_theme_stylebox_override("panel", _panel_style(PANEL, 10, Color(ACCENT, 0.30)))
+	dim.add_child(panel)
+	var margin = MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_top", 24)
+	margin.add_theme_constant_override("margin_bottom", 24)
+	panel.add_child(margin)
+	var box = VBoxContainer.new()
+	box.add_theme_constant_override("separation", 9)
+	margin.add_child(box)
+	box.add_child(_label("CUMA WORLD", 12, MUTED))
+	box.add_child(_label("DURAKLATILDI", 34, TEXT))
+	var mode_text = "Çevrimiçi dünya çalışmaya devam eder" if not paused_tree else "Dünya duraklatıldı"
+	box.add_child(_label(mode_text, 12, MUTED))
+	box.add_child(_gap(15))
+	var resume = _button("DEVAM ET", true)
+	resume.pressed.connect(_resume_game)
+	box.add_child(resume)
+	var save = _button("KAYDET", false)
+	save.pressed.connect(_save_current_game)
+	box.add_child(save)
+	var settings = _button("HIZLI AYARLAR", false)
+	settings.pressed.connect(_open_pause_settings)
+	box.add_child(settings)
+	var main_menu = _button("KAYDET VE ANA MENÜ", false)
+	main_menu.pressed.connect(_confirm_return_to_main)
+	box.add_child(main_menu)
+	var exit = _button("OYUNDAN ÇIK", false)
+	exit.pressed.connect(_confirm_quit)
+	box.add_child(exit)
+	resume.grab_focus()
+
+func _open_pause_settings() -> void:
+	_build_settings_dialog(true)
+
+func _save_current_game() -> void:
+	var gs = get_node_or_null("/root/GameState")
+	var player = get_tree().get_first_node_in_group("player")
+	if gs == null or not gs.has_method("save_game"):
+		_show_notice("Kayıt sistemi bulunamadı")
+		return
+	var err = OK
+	if player != null:
+		err = int(gs.call("save_game", player.global_position))
+	else:
+		err = int(gs.call("save_game"))
+	_show_notice("Oyun kaydedildi" if err == OK else "Kayıt başarısız")
+	_play_player(confirm_player if err == OK else back_player, 0.84)
+	_haptic(18 if err == OK else 30)
+
+func _confirm_return_to_main() -> void:
+	_build_confirm_dialog("ANA MENÜYE DÖN", "Mevcut ilerleme kaydedilecek ve ana menüye dönülecek.", Callable(self, "_return_to_main"))
+
+func _return_to_main() -> void:
+	_save_current_game()
+	if paused_tree:
+		get_tree().paused = false
+	paused_tree = false
+	var net = get_node_or_null("/root/NetworkManager")
+	if net != null and net.has_method("stop"):
+		net.call("stop")
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().reload_current_scene()
+
+func _confirm_quit() -> void:
+	_build_confirm_dialog("OYUNDAN ÇIK", "CUMA WORLD kapatılsın mı?", Callable(self, "_quit_game"))
+
+func _quit_game() -> void:
+	if paused_tree:
+		get_tree().paused = false
+	get_tree().quit()
+
+func _decorate_main_menu(safe: Control) -> void:
