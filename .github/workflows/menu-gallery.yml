@@ -1,0 +1,87 @@
+name: CUMA WORLD Menu Gallery
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - 'ci/menu_gallery_capture.gd'
+      - 'ci/menu_gallery_capture.tscn'
+      - '.github/workflows/menu-gallery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  gallery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract and patch production source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          python ci/apply_ci_patches.py
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot"
+          ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          URL="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}/${ASSET}"
+          curl -fL --retry 3 "$URL" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+      - name: Import project
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path game --editor --quit 2>&1 | tee /tmp/gallery-import.log
+          ! grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/gallery-import.log
+      - name: Capture real gallery
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb
+          cp ../ci/menu_gallery_capture.gd ./ci_menu_gallery_capture.gd
+          cp ../ci/menu_gallery_capture.tscn ./ci_menu_gallery_capture.tscn
+          mkdir -p build/gallery
+          export LIBGL_ALWAYS_SOFTWARE=1
+          xvfb-run -a -s '-screen 0 1280x720x24' \
+            "$GODOT_BIN" --path . --audio-driver Dummy --rendering-method gl_compatibility \
+            res://ci_menu_gallery_capture.tscn 2>&1 | tee /tmp/menu-gallery.log
+          grep -q 'CUMA_MENU_GALLERY_READY' /tmp/menu-gallery.log
+          test "$(find build/gallery -name '*.png' | wc -l)" -ge 13
+      - name: Upload screenshots
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-all-screenshots
+          path: game/build/gallery/*.png
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-gallery-diagnostics
+          path: |
+            /tmp/gallery-import.log
+            /tmp/menu-gallery.log
+          if-no-files-found: ignore
+          retention-days: 5
