@@ -94,12 +94,22 @@ func _assert_live_player_rig() -> void:
 	if yaw_error > 0.5:
 		_fail("Live imported rig forward axis is not corrected to -Z: " + str(imported_3d.rotation_degrees.y))
 	var visual = live_player.find_child("CharacterVisual", true, false)
-	if visual == null or not (visual is Node3D) or not (visual as Node3D).visible:
-		_fail("Verified imported rig should default to visible third-person mode")
+	if visual == null or not (visual is Node3D):
+		_fail("Live player has no CharacterVisual root")
+		return
+	if (visual as Node3D).visible:
+		_fail("Production startup must remain first-person until the 3P art quality gate passes")
 
 func _capture_live_player_view() -> void:
 	if live_player == null:
 		return
+	var visual = live_player.find_child("CharacterVisual", true, false)
+	if visual == null or not (visual is Node3D):
+		return
+	var visual_3d = visual as Node3D
+	# The game starts in 1P for quality; Visual Audit temporarily reveals the rig
+	# so optional CAM/3P quality can keep improving without exposing it by default.
+	visual_3d.visible = true
 	live_player.global_position = Vector3(0.0, 0.02, 5.15)
 	live_player.rotation_degrees.y = 0.0
 	for i in range(3):
@@ -109,6 +119,7 @@ func _capture_live_player_view() -> void:
 		Vector3(0.0, 1.72, 8.35),
 		Vector3(0.0, 1.02, 5.05)
 	)
+	visual_3d.visible = false
 
 func _capture_view(view_name: String, camera_pos: Vector3, target: Vector3) -> void:
 	audit_camera.global_position = camera_pos
