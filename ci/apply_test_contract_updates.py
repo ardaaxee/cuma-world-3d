@@ -32,6 +32,16 @@ def main() -> None:
         "keep first-person default and add audited live-rig scale/yaw contracts",
     )
 
+    visual_test = ROOT / "tests" / "visual_rebuild_smoke.py"
+    replace_exact(
+        visual_test,
+        "assert 'camera_spring.spring_length = 4.85' in player",
+        "assert 'camera_spring.spring_length = 4.25' in player\n"
+        "assert 'camera.position = Vector3(0.48, 0.08, 0.0)' in player\n"
+        "assert 'camera.fov = 60.0' in player",
+        "upgrade legacy third-person camera contract to Character 3.0 shoulder framing",
+    )
+
     print("CUMA TEST CONTRACT UPDATE: PASS")
 
 
