@@ -20,39 +20,36 @@ def replace_exact(path: Path, old: str, new: str, label: str) -> None:
     print(f"RUNTIME ROUND2 APPLIED: {label}")
 
 
+def run_ci_script(name: str) -> None:
+    script = Path(__file__).with_name(name)
+    if not script.is_file():
+        raise SystemExit(f"missing ci/{name}")
+    subprocess.run([sys.executable, str(script)], check=True)
+
+
 def main() -> None:
     if not ROOT.is_dir():
         raise SystemExit(f"game directory not found: {ROOT}")
 
-    installer = Path(__file__).with_name("install_character_assets.py")
-    if not installer.is_file():
-        raise SystemExit("missing ci/install_character_assets.py")
-    subprocess.run([sys.executable, str(installer)], check=True)
-
+    # LOD1/fallback rig currently used by gameplay.
+    run_ci_script("install_character_assets.py")
     for name in ("cuma.glb", "partner.glb"):
         target = ROOT / "assets" / "characters" / name
         if not target.is_file() or target.stat().st_size != 698560:
             raise SystemExit(f"installed character asset invalid: {target}")
+    run_ci_script("inspect_imported_character.py")
 
-    inspector = Path(__file__).with_name("inspect_imported_character.py")
-    if not inspector.is_file():
-        raise SystemExit("missing ci/inspect_imported_character.py")
-    subprocess.run([sys.executable, str(inspector)], check=True)
+    # Character 3.0 LOD0 candidate. It is installed and audited, but not promoted to
+    # gameplay until the Godot Character Visual Audit proves the mobile-quality gain.
+    run_ci_script("install_high_character.py")
+    high_target = ROOT / "assets" / "characters" / "cuma_high.glb"
+    if not high_target.is_file() or high_target.stat().st_size != 6_673_192:
+        raise SystemExit(f"high-detail character candidate invalid: {high_target}")
+    run_ci_script("inspect_high_character.py")
 
-    character_integration = Path(__file__).with_name("apply_character_integration.py")
-    if not character_integration.is_file():
-        raise SystemExit("missing ci/apply_character_integration.py")
-    subprocess.run([sys.executable, str(character_integration)], check=True)
-
-    character_overhaul = Path(__file__).with_name("apply_character_overhaul2.py")
-    if not character_overhaul.is_file():
-        raise SystemExit("missing ci/apply_character_overhaul2.py")
-    subprocess.run([sys.executable, str(character_overhaul)], check=True)
-
-    test_contracts = Path(__file__).with_name("apply_test_contract_updates.py")
-    if not test_contracts.is_file():
-        raise SystemExit("missing ci/apply_test_contract_updates.py")
-    subprocess.run([sys.executable, str(test_contracts)], check=True)
+    run_ci_script("apply_character_integration.py")
+    run_ci_script("apply_character_overhaul2.py")
+    run_ci_script("apply_test_contract_updates.py")
 
     player = (ROOT / "scripts" / "player_controller.gd").read_text(encoding="utf-8")
     remote = (ROOT / "scripts" / "together" / "remote_avatar.gd").read_text(encoding="utf-8")
@@ -99,11 +96,7 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
-    cloudflare = Path(__file__).with_name("apply_cloudflare_foundation.py")
-    if not cloudflare.is_file():
-        raise SystemExit("missing ci/apply_cloudflare_foundation.py")
-    subprocess.run([sys.executable, str(cloudflare)], check=True)
-
+    run_ci_script("apply_cloudflare_foundation.py")
     print("CUMA RUNTIME ROUND2 PATCH: PASS")
 
 
