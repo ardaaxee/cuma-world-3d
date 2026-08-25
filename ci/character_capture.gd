@@ -40,7 +40,6 @@ func _ready() -> void:
 	var rest_size: Vector3 = rest_bounds.get("size", Vector3.ZERO)
 	var rest_min: Vector3 = rest_bounds.get("min", Vector3.ZERO)
 	print("CUMA_CHARACTER_REST_BOUNDS min=", rest_min, " size=", rest_size, " bones=", skeleton.get_bone_count())
-	# Compatibility marker for older CI checks. Rest-pose bounds are the canonical values.
 	print("CUMA_CHARACTER_NATIVE_BOUNDS min=", rest_min, " size=", rest_size)
 	if rest_size.y <= 0.10:
 		_fail("character skeleton rest height is invalid: " + str(rest_size))
@@ -83,6 +82,12 @@ func _ready() -> void:
 	_build_stage()
 	await _capture_state("idle", 0.0, false)
 	await _capture_state("walk", 1.8, false)
+
+	# Compare the imported CC0 rig with Character 3.0 procedural art under the
+	# exact same lighting/camera instead of guessing which base reads better.
+	model_root.visible = false
+	await _capture_procedural("procedural_idle", false)
+	await _capture_procedural("procedural_walk", true)
 	_finish()
 
 func _build_stage() -> void:
@@ -132,19 +137,49 @@ func _capture_state(label: String, speed: float, running: bool) -> void:
 	bridge.update_state(speed, running, true, 0.0, false)
 	for i in range(14):
 		await get_tree().process_frame
+	await _save_frame("visual_character_" + label + ".png")
+
+func _capture_procedural(label: String, walking: bool) -> void:
+	var script = load("res://scripts/character/procedural_humanoid.gd")
+	if script == null:
+		_fail("could not load procedural humanoid")
+		return
+	var rig = Node3D.new()
+	rig.name = "CharacterAuditProcedural"
+	rig.set_script(script)
+	add_child(rig)
+	rig.setup({
+		"skin": Color("d3a17f"),
+		"top": Color("202a3a"),
+		"pants": Color("171c25"),
+		"hair": Color("151719"),
+		"shoes": Color("090b0f"),
+		"shirt": Color("ece9e2"),
+		"tie": Color("16191f"),
+		"formal": true,
+		"shoulder_scale": 1.02,
+	})
+	for i in range(36):
+		rig.update_pose(1.0 / 60.0, 3.2 if walking else 0.0, false, 0.0, true, false, -0.05, 0.0)
+	await get_tree().process_frame
+	await _save_frame("visual_character_" + label + ".png")
+	rig.queue_free()
+	await get_tree().process_frame
+
+func _save_frame(filename: String) -> void:
 	await RenderingServer.frame_post_draw
 	var image = get_viewport().get_texture().get_image()
 	if image == null or image.is_empty():
-		_fail("empty character viewport for " + label)
+		_fail("empty character viewport for " + filename)
 		return
 	var build_dir = ProjectSettings.globalize_path("res://build")
 	DirAccess.make_dir_recursive_absolute(build_dir)
-	var output = "res://build/visual_character_" + label + ".png"
+	var output = "res://build/" + filename
 	var error = image.save_png(output)
 	if error != OK:
 		_fail("could not save " + output + ": " + str(error))
 		return
-	print("CUMA_CHARACTER_CAPTURE ", label, " -> ", output)
+	print("CUMA_CHARACTER_CAPTURE -> ", output)
 
 func _skeleton_rest_bounds(skeleton: Skeleton3D) -> Dictionary:
 	var min_v = Vector3(INF, INF, INF)
@@ -156,11 +191,7 @@ func _skeleton_rest_bounds(skeleton: Skeleton3D) -> Dictionary:
 	return {"min": min_v, "max": max_v, "size": max_v - min_v}
 
 func _world_bounds(root: Node) -> Dictionary:
-	var state = {
-		"has": false,
-		"min": Vector3(INF, INF, INF),
-		"max": Vector3(-INF, -INF, -INF),
-	}
+	var state = {"has": false, "min": Vector3(INF, INF, INF), "max": Vector3(-INF, -INF, -INF)}
 	_collect_bounds(root, state)
 	if not bool(state["has"]):
 		return {"min": Vector3.ZERO, "max": Vector3.ZERO, "size": Vector3.ZERO}
