@@ -36,12 +36,11 @@ def main() -> None:
         "normalize local rig scale, floor offset and forward axis",
     )
 
-    replace_exact(
-        player,
-        '''\t# Until a real animated GLB is installed, start in first person so the\n\t# procedural fallback does not dominate the whole screen.\n\tfirst_person = true\n\t_apply_camera_mode()''',
-        '''\t# A verified animated GLB is comfortable in third person; the procedural\n\t# fallback remains first-person by default so it never dominates the screen.\n\tfirst_person = imported_bridge == null\n\t_apply_camera_mode()''',
-        "use third person by default only for verified rigged character",
-    )
+    # The current audited CC0 rig is technically sound but still visually too
+    # low-poly/monochrome for a production default. Keep 1P as the safe default;
+    # CAM can still reveal the fully animated normalized rig at any time.
+    # The original source already uses first_person = true, so no source rewrite
+    # is needed here; CI contracts below keep that behavior intentional.
 
     replace_exact(
         player,
