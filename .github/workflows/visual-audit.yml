@@ -108,6 +108,14 @@ jobs:
           test -s build/visual_bedroom.png
           rm -f ci_visual_capture.gd ci_visual_capture.tscn
 
+      - name: Measure room luminance guardrails
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+          python ci/visual_metrics.py 2>&1 | tee /tmp/visual-metrics.log
+          grep -q 'CUMA VISUAL METRICS: PASS' /tmp/visual-metrics.log
+
       - name: Audit current character bases in Godot
         working-directory: game
         shell: bash
@@ -164,7 +172,7 @@ jobs:
           gh issue create \
             --repo "$GITHUB_REPOSITORY" \
             --title "Visual audit ready #${GITHUB_RUN_NUMBER}" \
-            --body "Rendered production home plus current/procedural/high-detail Character 3.0 comparisons are ready. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
+            --body "Rendered production home plus current/procedural/high-detail Character 3.0 comparisons are ready. Room luminance guardrails passed. Run: $GITHUB_RUN_ID. Artifact: CUMA-WORLD-visual-audit. Commit: $GITHUB_SHA"
 
       - name: Upload visual diagnostics
         if: always()
@@ -174,6 +182,7 @@ jobs:
           path: |
             /tmp/visual-import.log
             /tmp/visual-capture.log
+            /tmp/visual-metrics.log
             /tmp/character-capture.log
             /tmp/high-character-capture.log
           if-no-files-found: ignore
@@ -192,7 +201,7 @@ jobs:
             echo "Commit: $GITHUB_SHA"
             echo
             echo '```text'
-            tail -n 180 /tmp/high-character-capture.log 2>/dev/null || tail -n 180 /tmp/character-capture.log 2>/dev/null || tail -n 180 /tmp/visual-capture.log 2>/dev/null || tail -n 180 /tmp/visual-import.log 2>/dev/null || true
+            tail -n 180 /tmp/visual-metrics.log 2>/dev/null || tail -n 180 /tmp/high-character-capture.log 2>/dev/null || tail -n 180 /tmp/character-capture.log 2>/dev/null || tail -n 180 /tmp/visual-capture.log 2>/dev/null || tail -n 180 /tmp/visual-import.log 2>/dev/null || true
             echo '```'
           } > /tmp/visual-failure.md
           gh issue create \
