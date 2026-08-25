@@ -42,14 +42,23 @@ func _ready() -> void:
 		await _capture("07_gameplay")
 
 		var field_ops = get_tree().get_first_node_in_group("field_ops_runtime")
-		if field_ops != null and field_ops.has_method("_toggle_dossier"):
-			field_ops.call("_toggle_dossier")
-			for i in range(10):
-				await get_tree().process_frame
-			await _capture("18_field_ops_dossier")
-			field_ops.call("_toggle_dossier")
-			for i in range(4):
-				await get_tree().process_frame
+		if field_ops != null:
+			if field_ops.has_method("_toggle_left_hud"):
+				field_ops.call("_toggle_left_hud")
+				for i in range(6):
+					await get_tree().process_frame
+				await _capture("19_field_ops_compact")
+				field_ops.call("_toggle_left_hud")
+				for i in range(5):
+					await get_tree().process_frame
+			if field_ops.has_method("_toggle_dossier"):
+				field_ops.call("_toggle_dossier")
+				for i in range(10):
+					await get_tree().process_frame
+				await _capture("18_field_ops_dossier")
+				field_ops.call("_toggle_dossier")
+				for i in range(4):
+					await get_tree().process_frame
 
 		var extras = menu.get("menu_extras")
 		if extras != null:
