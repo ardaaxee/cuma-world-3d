@@ -6,6 +6,7 @@ from apply_cinematic_main_menu import main as apply_cinematic_menu
 from apply_menu_extras import main as apply_menu_extras
 from apply_visual_overhaul_50 import main as apply_visual_overhaul_50
 from apply_character_50 import main as apply_character_50
+from character_50_contract import main as check_character_50
 from cinematic_menu_contract import main as check_cinematic_menu
 from menu_extras_contract import main as check_menu_extras
 from update_regression_contracts import main as update_regression_contracts
@@ -23,6 +24,7 @@ def main() -> None:
     apply_menu_extras()
     apply_visual_overhaul_50()
     apply_character_50()
+    check_character_50()
     check_cinematic_menu()
     check_menu_extras()
     check_visual_overhaul_50()
