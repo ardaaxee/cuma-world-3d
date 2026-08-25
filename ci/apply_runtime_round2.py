@@ -39,6 +39,11 @@ def main() -> None:
         raise SystemExit("missing ci/apply_character_integration.py")
     subprocess.run([sys.executable, str(character_integration)], check=True)
 
+    character_overhaul = Path(__file__).with_name("apply_character_overhaul2.py")
+    if not character_overhaul.is_file():
+        raise SystemExit("missing ci/apply_character_overhaul2.py")
+    subprocess.run([sys.executable, str(character_overhaul)], check=True)
+
     test_contracts = Path(__file__).with_name("apply_test_contract_updates.py")
     if not test_contracts.is_file():
         raise SystemExit("missing ci/apply_test_contract_updates.py")
@@ -47,6 +52,7 @@ def main() -> None:
     player = (ROOT / "scripts" / "player_controller.gd").read_text(encoding="utf-8")
     remote = (ROOT / "scripts" / "together" / "remote_avatar.gd").read_text(encoding="utf-8")
     bridge = (ROOT / "scripts" / "imported_character_bridge.gd").read_text(encoding="utf-8")
+    humanoid = (ROOT / "scripts" / "character" / "procedural_humanoid.gd").read_text(encoding="utf-8")
     for label, source in (("local player", player), ("remote partner", remote)):
         if "Vector3.ONE * 0.340030" not in source:
             raise SystemExit(f"{label} missing audited 1.78m rig scale")
@@ -61,11 +67,23 @@ def main() -> None:
     if "animation_player.speed_scale = clamp(speed / 3.0" not in bridge:
         raise SystemExit("imported rig bridge missing locomotion playback-rate matching")
 
-    relationship = ROOT / "scripts" / "social" / "relationship_citizen.gd"
+    # Character 3.0 contracts: high-level cinematic character language inspired by
+    # premium third-person spy games, without copying any copyrighted likeness/assets.
+    if '"formal": true' not in player or '"shirt": Color("ece9e2")' not in player:
+        raise SystemExit("Cuma premium formal profile is missing")
+    if 'camera.position = Vector3(0.48, 0.08, 0.0)' not in player:
+        raise SystemExit("cinematic shoulder camera offset is missing")
+    if 'var last_visual_yaw = 0.0' not in player or 'turn_rate = yaw_delta / max(delta, 0.001)' not in player:
+        raise SystemExit("player-to-rig turn-rate bridge is missing")
+    for token in ['ShirtFront', 'LeftLapel', 'RightLapel', 'Tie', 'Belt']:
+        if token not in humanoid:
+            raise SystemExit(f"procedural premium clothing layer missing: {token}")
+    if 'turn_rate: float = 0.0' not in humanoid or 'turn_blend = clamp(turn_rate * 0.085' not in humanoid:
+        raise SystemExit("procedural cinematic counter-turn motion is missing")
+    if 'var cadence = lerp(6.0, 9.7, run_blend)' not in humanoid:
+        raise SystemExit("weighted cinematic locomotion cadence is missing")
 
-    # GDScript's conditional expression returns an untyped Array here. Assigning
-    # that value to Array[Vector3] fails only when NPC Intelligence schedules a
-    # meetup, so parser/import checks alone cannot catch it.
+    relationship = ROOT / "scripts" / "social" / "relationship_citizen.gd"
     replace_exact(
         relationship,
         '\tactive_route = [entry, ai_target] if entry != Vector3.ZERO and entry.distance_to(ai_target) > 0.8 else [ai_target]',
@@ -76,9 +94,6 @@ def main() -> None:
         "preserve Array[Vector3] typing in relationship NPC AI plan routes",
     )
 
-    # Network foundation layer: adds the optional Cloudflare control plane without
-    # replacing LAN/manual relay modes. This stays in the same deterministic patch
-    # stack used by Android builds and Visual Audit.
     cloudflare = Path(__file__).with_name("apply_cloudflare_foundation.py")
     if not cloudflare.is_file():
         raise SystemExit("missing ci/apply_cloudflare_foundation.py")
