@@ -1,0 +1,150 @@
+name: CUMA WORLD Intelligence Stealth 7.0 P0
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ci/overlays/70/**'
+      - 'ci/apply_intelligence_stealth_70.py'
+      - 'ci/intelligence_stealth_70_contract.py'
+      - 'ci/apply_runtime_round2.py'
+      - '.github/workflows/intelligence-stealth-70-p0.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: cuma-intel70-p0-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  p0-quality-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract current game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -tq "$SOURCE_ZIP"
+          unzip -q "$SOURCE_ZIP" -d game
+          test -f game/project.godot
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install CI dependencies
+        run: python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+
+      - name: Apply existing production patches plus Intelligence 7.0
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python ci/apply_ci_patches.py
+          python ci/intelligence_stealth_70_contract.py
+
+      - name: Run repository Python regressions
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python scripts/ci_apk_preflight.py
+          for test_file in tests/*.py; do
+            echo "==> $test_file"
+            python "$test_file"
+          done
+
+      - name: Install Godot 4.7.2
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot"
+          ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          BASE="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          BUILDS="https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}"
+          curl -fL --retry 3 --retry-delay 2 "$BASE/$ASSET" -o /tmp/godot.zip \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS/$ASSET" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+          "$GODOT_BIN" --version
+
+      - name: Godot parser and import gate
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path . --editor --quit --verbose 2>&1 | tee /tmp/intel70-import.log
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/intel70-import.log; then
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/intel70-import.log || true
+            exit 1
+          fi
+
+      - name: Godot real startup runtime gate
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          set +e
+          "$GODOT_BIN" --headless --path . --quit-after 240 --verbose 2>&1 | tee /tmp/intel70-runtime.log
+          CODE=${PIPESTATUS[0]}
+          set -e
+          test "$CODE" -eq 0
+          if grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot set property' /tmp/intel70-runtime.log; then
+            grep -Ein 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot set property' /tmp/intel70-runtime.log || true
+            exit 1
+          fi
+          grep -q 'CUMA_BOOT_READY' /tmp/intel70-runtime.log
+
+      - name: Report P0 success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Intelligence 7.0 P0 gate passed #${GITHUB_RUN_NUMBER}" \
+            --body "Intel architecture, Observation/LOS, awareness/suspicion, mission integration, save wiring and mobile control source passed repository regressions plus Godot 4.7.2 parser/import and real startup runtime gates. Run: $GITHUB_RUN_ID. Commit: $GITHUB_SHA"
+
+      - name: Upload P0 diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-intelligence70-p0-diagnostics-${{ github.run_number }}
+          path: |
+            /tmp/intel70-import.log
+            /tmp/intel70-runtime.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Report P0 failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '## Intelligence & Stealth 7.0 P0 quality gate failed'
+            echo
+            echo "Run: $GITHUB_RUN_ID"
+            echo "Commit: $GITHUB_SHA"
+            echo
+            echo '```text'
+            tail -n 180 /tmp/intel70-runtime.log 2>/dev/null || tail -n 180 /tmp/intel70-import.log 2>/dev/null || true
+            echo '```'
+          } > /tmp/intel70-failure.md
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Intelligence 7.0 P0 gate failed #${GITHUB_RUN_NUMBER}" \
+            --body-file /tmp/intel70-failure.md
