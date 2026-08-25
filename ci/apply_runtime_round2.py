@@ -39,6 +39,11 @@ def main() -> None:
         raise SystemExit("missing ci/apply_character_integration.py")
     subprocess.run([sys.executable, str(character_integration)], check=True)
 
+    test_contracts = Path(__file__).with_name("apply_test_contract_updates.py")
+    if not test_contracts.is_file():
+        raise SystemExit("missing ci/apply_test_contract_updates.py")
+    subprocess.run([sys.executable, str(test_contracts)], check=True)
+
     player = (ROOT / "scripts" / "player_controller.gd").read_text(encoding="utf-8")
     remote = (ROOT / "scripts" / "together" / "remote_avatar.gd").read_text(encoding="utf-8")
     bridge = (ROOT / "scripts" / "imported_character_bridge.gd").read_text(encoding="utf-8")
