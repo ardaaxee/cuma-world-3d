@@ -50,6 +50,16 @@ def patch_menu_character() -> None:
     )
 
 
+def patch_high_detail_idle() -> None:
+    bridge = ROOT / "scripts/imported_character_bridge.gd"
+    replace_once(
+        bridge,
+        '''\tvar animation_name: StringName = animations[state]\n\tanimation_player.play(animation_name, blend)\n\tcurrent_state = state''',
+        '''\tvar animation_name: StringName = animations[state]\n\tanimation_player.play(animation_name, blend)\n\t# Character 5.1: the pinned MakeHuman high-detail asset exposes its clip as\n\t# exactly "idle". Audit found the clean relaxed pose at 0.35 s; holding that\n\t# pose while stationary avoids the clip's wide-arm phase in menus/gameplay.\n\t# Legacy rigs use names such as Human Armature|Idle and keep their animation.\n\tif state == "Idle" and String(animation_name).to_lower() == "idle":\n\t\tanimation_player.seek(0.35, true)\n\t\tanimation_player.pause()\n\tcurrent_state = state''',
+        "hold audited relaxed idle pose for high-detail rig",
+    )
+
+
 def normalize(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     text = re.sub(r"^(\s*var\s+[^\n]*?)\s*:=\s*", r"\1 = ", text, flags=re.MULTILINE)
@@ -59,12 +69,15 @@ def normalize(path: Path) -> None:
 def main() -> None:
     player = ROOT / "scripts/player_controller.gd"
     menu = ROOT / "scripts/ui/menu_character.gd"
+    bridge = ROOT / "scripts/imported_character_bridge.gd"
     # Partner uses its own partner.glb slot. Do not replace it with CUMA's male rig.
     patch_runtime_character(player)
     patch_menu_character()
+    patch_high_detail_idle()
     normalize(player)
     normalize(menu)
-    print("CUMA CHARACTER 5.0 HIGH-DETAIL SLOT: PASS")
+    normalize(bridge)
+    print("CUMA CHARACTER 5.1 HIGH-DETAIL SLOT + IDLE: PASS")
 
 
 if __name__ == "__main__":
