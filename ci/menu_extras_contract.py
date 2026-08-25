@@ -76,10 +76,12 @@ def main() -> None:
         fail("extras must not create a second renderer/world")
 
     require(mobile, [
-        '_make_top_button("MENÜ", -424.0)',
+        '_make_top_button("MENÜ", -244.0)',
+        '_make_top_button("EK", -304.0)',
+        'func _on_toggle_utility_tray() -> void:',
         'get_first_node_in_group("cinematic_menu_extras")',
         'extras.call("toggle_pause_menu")',
-    ], "mobile pause entry")
+    ], "mobile pause and compact utility entry")
 
     require(player, [
         'var look_sensitivity_multiplier = 1.0',
