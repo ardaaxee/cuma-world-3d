@@ -43,12 +43,18 @@ func _ready() -> void:
 
 		var extras = menu.get("menu_extras")
 		if extras != null:
-			extras.call("toggle_pause_menu")
+			# Build the exact production pause UI without freezing the CI render loop.
+			extras.set("paused_tree", false)
+			menu.set("state", 9)
+			extras.call("_build_pause_overlay")
 			for i in range(12):
 				await get_tree().process_frame
 			await _capture("08_pause")
-			# Return to gameplay so room beauty shots can render without the pause overlay.
-			extras.call("toggle_pause_menu")
+			var pause_overlay = extras.get("pause_overlay")
+			if pause_overlay != null:
+				pause_overlay.queue_free()
+				extras.set("pause_overlay", null)
+			menu.set("state", 8)
 			for i in range(6):
 				await get_tree().process_frame
 
