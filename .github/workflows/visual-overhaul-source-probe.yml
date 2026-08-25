@@ -1,0 +1,49 @@
+name: Probe CUMA WORLD visual overhaul sources
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/visual-overhaul-source-probe.yml'
+      - 'ci/visual_overhaul_probe_marker.txt'
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract and patch current production source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          python ci/apply_ci_patches.py
+      - name: Upload visual overhaul source map
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-visual-overhaul-source-map
+          path: |
+            game/scripts/world/production_home_builder.gd
+            game/scripts/world/ultra_home_builder.gd
+            game/scripts/world/realism_overhaul.gd
+            game/scripts/player_controller.gd
+            game/scripts/mobile_controls.gd
+            game/scripts/graphics_manager.gd
+            game/scripts/main.gd
+            game/scripts/city/dynamic_city_builder.gd
+            game/scripts/city/production_city_polish.gd
+            game/project.godot
+          if-no-files-found: warn
+          retention-days: 2
