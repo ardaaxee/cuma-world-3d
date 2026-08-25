@@ -70,6 +70,10 @@ func _ready() -> void:
 		await _capture_view("11_kitchen", Vector3(3.35, 1.62, 5.70), Vector3(7.25, 1.08, 4.45))
 		await _capture_view("12_bedroom", Vector3(-3.55, 1.62, -5.40), Vector3(-7.15, 0.95, -6.25))
 		await _capture_player(player)
+		# Visual Overhaul 5.0 adds dedicated detail passes to these spaces too.
+		await _capture_view("14_bathroom", Vector3(3.35, 1.58, 7.10), Vector3(7.10, 1.08, 8.05))
+		await _capture_view("15_balcony", Vector3(-2.15, 1.62, 10.05), Vector3(-7.25, 0.95, 11.55))
+		await _capture_view("16_entry", Vector3(0.0, 1.58, 5.80), Vector3(0.0, 1.30, 8.45))
 
 	if failed:
 		get_tree().quit(2)
