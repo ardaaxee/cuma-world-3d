@@ -1,0 +1,39 @@
+name: Probe remote character source
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/remote-character-probe.yml'
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build established production source only
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          python ci/apply_ci_patches_base.py
+      - name: Upload remote character source
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-remote-character-source
+          path: |
+            game/scripts/together/remote_avatar.gd
+            game/scripts/imported_character_bridge.gd
+          retention-days: 2

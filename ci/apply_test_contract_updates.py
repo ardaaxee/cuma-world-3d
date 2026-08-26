@@ -27,9 +27,11 @@ def main() -> None:
         production_test,
         "assert 'first_person = true' in player",
         "assert 'first_person = true' in player\n"
+        "assert 'res://assets/characters/cuma_high.glb' in player\n"
+        "assert 'Vector3.ONE * 1.002724' in player\n"
         "assert 'Vector3.ONE * 0.340030' in player\n"
         "assert 'rotation_degrees.y = 180.0' in player",
-        "keep first-person default and add audited live-rig scale/yaw contracts",
+        "keep first-person default and add Character 5.0 high/fallback rig contracts",
     )
 
     visual_test = ROOT / "tests" / "visual_rebuild_smoke.py"

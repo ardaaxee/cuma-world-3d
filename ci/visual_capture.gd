@@ -84,12 +84,16 @@ func _assert_live_player_rig() -> void:
 		_fail("Live player did not use ImportedCumaGLB")
 		return
 	var imported_3d = imported as Node3D
-	var scale_error = (imported_3d.scale - Vector3.ONE * 0.340030).length()
+	var uses_high_detail = FileAccess.file_exists("res://assets/characters/cuma_high.glb")
+	var expected_scale = 1.002724 if uses_high_detail else 0.340030
+	var expected_y = -0.000444 if uses_high_detail else -0.000447
+	var rig_mode = "Character5High" if uses_high_detail else "LegacyFallback"
+	var scale_error = (imported_3d.scale - Vector3.ONE * expected_scale).length()
 	var yaw_error = abs(abs(wrapf(imported_3d.rotation_degrees.y, -180.0, 180.0)) - 180.0)
-	print("CUMA_LIVE_RIG scale=", imported_3d.scale, " y=", imported_3d.position.y, " yaw=", imported_3d.rotation_degrees.y)
+	print("CUMA_LIVE_RIG mode=", rig_mode, " scale=", imported_3d.scale, " y=", imported_3d.position.y, " yaw=", imported_3d.rotation_degrees.y)
 	if scale_error > 0.002:
 		_fail("Live imported rig scale drifted from audited 1.78m normalization: " + str(imported_3d.scale))
-	if abs(imported_3d.position.y - (-0.000447)) > 0.003:
+	if abs(imported_3d.position.y - expected_y) > 0.003:
 		_fail("Live imported rig floor offset drifted: " + str(imported_3d.position.y))
 	if yaw_error > 0.5:
 		_fail("Live imported rig forward axis is not corrected to -Z: " + str(imported_3d.rotation_degrees.y))
