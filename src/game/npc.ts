@@ -32,6 +32,8 @@ class NpcAgent {
   private state: AwarenessState = "NORMAL";
   private alertedCycle = false;
   private senseTimer = 0;
+  private lastSeenPosition: Vector3 | null = null;
+  private investigateTimer = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -79,6 +81,7 @@ class NpcAgent {
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
+    this.investigateTimer = Math.max(0, this.investigateTimer - dt);
     this.updatePatrol(dt);
     this.senseTimer -= dt;
     if (this.senseTimer <= 0) {
@@ -93,29 +96,41 @@ class NpcAgent {
   }
 
   private updatePatrol(dt: number): void {
-    if (this.route.length < 2 || this.state === "ALERT") return;
+    if (this.state === "ALERT") return;
+
+    if (this.lastSeenPosition && this.investigateTimer > 0 && (this.state === "CURIOUS" || this.state === "SUSPICIOUS")) {
+      const investigateSpeed = this.state === "SUSPICIOUS" ? 0.82 : 0.62;
+      if (this.moveToward(this.lastSeenPosition, investigateSpeed, dt) < 0.34) this.investigateTimer = 0;
+      return;
+    }
+
+    if (this.route.length < 2) return;
     const destination = this.route[this.routeIndex];
     if (!destination) return;
+    const distance = this.moveToward(destination, this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05, dt);
+    if (distance < 0.18) this.routeIndex = (this.routeIndex + 1) % this.route.length;
+  }
+
+  private moveToward(destination: Vector3, speed: number, dt: number): number {
     const delta = destination.subtract(this.root.position);
     delta.y = 0;
     const distance = delta.length();
-    if (distance < 0.18) {
-      this.routeIndex = (this.routeIndex + 1) % this.route.length;
-      return;
-    }
-    const direction = delta.scale(1 / Math.max(distance, 0.001));
-    const speed = this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05;
+    if (distance <= 0.001) return distance;
+    const direction = delta.scale(1 / distance);
     this.root.position.addInPlace(direction.scale(Math.min(distance, speed * dt)));
     const targetYaw = Math.atan2(direction.x, direction.z);
     let angle = targetYaw - this.root.rotation.y;
     while (angle > Math.PI) angle -= Math.PI * 2;
     while (angle < -Math.PI) angle += Math.PI * 2;
     this.root.rotation.y += angle * (1 - Math.exp(-8 * dt));
+    return distance;
   }
 
   private updateAwareness(dt: number, playerPosition: Vector3, playerCollider: Mesh, active: boolean): void {
     if (!active) {
       this.awareness = Math.max(0, this.awareness - dt * 1.25);
+      this.investigateTimer = 0;
+      this.lastSeenPosition = null;
       this.refreshState();
       return;
     }
@@ -142,11 +157,14 @@ class NpcAgent {
     }
 
     if (visible) {
+      this.lastSeenPosition = playerPosition.clone();
+      this.investigateTimer = this.config.security ? 3.4 : 2.4;
       const proximity = 1 - Math.min(1, distance / (this.config.security ? 9.0 : 6.2));
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
       this.awareness = Math.min(1, this.awareness + dt * rate);
     } else {
       this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58));
+      if (this.awareness < 0.18 && this.investigateTimer <= 0) this.lastSeenPosition = null;
     }
 
     this.refreshState();
