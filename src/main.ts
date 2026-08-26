@@ -2,6 +2,7 @@ import "./styles.css";
 import "./briefing.css";
 import "./hud.css";
 import { GameRuntime } from "./game/runtime11";
+import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   type FpsSetting,
   type GraphicsPreferences,
@@ -43,11 +44,14 @@ const graphicsStatus = required<HTMLElement>("#graphics-status");
 const lookSensitivitySelect = required<HTMLSelectElement>("#look-sensitivity");
 const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
 const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
+const intelStatus = required<HTMLElement>("#intel");
+const awarenessStatus = required<HTMLElement>("#awareness");
 
 const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
 buildLabel.textContent = `ANDROID PLAY RUNTIME 11 · ${buildSha.toUpperCase()} · PRE-RELEASE`;
 
 const runtime = new GameRuntime(canvas);
+const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
 runtime.start();
 
 let activeHudMode: HudMode = "COMPACT";
@@ -120,6 +124,7 @@ function applyGameplayPreferences(): void {
   saveGameplayPreferences(preferences);
   runtime.setLookSensitivity(preferences.lookSensitivity);
   runtime.setAudioVolume(preferences.audioVolume);
+  uiAudioFeedback.setVolume(preferences.audioVolume);
   activeHudMode = preferences.hudMode;
   document.body.classList.toggle("hud-compact", activeHudMode === "COMPACT");
   wakeHud();
@@ -166,4 +171,5 @@ enter.addEventListener("click", () => {
   wakeHud();
   scheduleHudQuiet();
   void runtime.unlockAudio();
+  void uiAudioFeedback.unlock();
 });
