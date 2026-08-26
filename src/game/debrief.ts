@@ -9,10 +9,15 @@ export class MissionDebrief {
     private readonly scoreElement: HTMLElement,
     private readonly intelResultElement: HTMLElement,
     closeButton: HTMLButtonElement,
+    private readonly onOpen: () => void = () => undefined,
+    private readonly onClose: () => void = () => undefined,
   ) {
     this.observer = new MutationObserver(() => this.refresh());
     this.observer.observe(intelElement, { childList: true, characterData: true, subtree: true });
-    closeButton.addEventListener("click", () => this.overlay.classList.add("hidden"));
+    closeButton.addEventListener("click", () => {
+      this.overlay.classList.add("hidden");
+      this.onClose();
+    });
     this.refresh();
   }
 
@@ -37,5 +42,6 @@ export class MissionDebrief {
     this.intelResultElement.textContent = `${found}/${total} INTEL`;
     this.overlay.dataset.rank = rank;
     this.overlay.classList.remove("hidden");
+    this.onOpen();
   }
 }
