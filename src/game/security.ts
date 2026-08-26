@@ -1,0 +1,92 @@
+import {
+  Color3,
+  Mesh,
+  MeshBuilder,
+  PBRMaterial,
+  Ray,
+  Scene,
+  Vector3,
+} from "@babylonjs/core";
+import type { AwarenessSnapshot } from "./npc";
+
+export class SecurityCameraSystem {
+  readonly bypassPanel: Mesh;
+  private readonly cameraMesh: Mesh | null;
+  private awareness = 0;
+  private bypassed = false;
+  private alertedCycle = false;
+  private senseTimer = 0;
+
+  constructor(private readonly scene: Scene, private readonly onAlert: () => void) {
+    this.cameraMesh = scene.getMeshByName("fictional-camera") as Mesh | null;
+    const panelMaterial = new PBRMaterial("cctv-bypass-panel-material", scene);
+    panelMaterial.albedoColor = new Color3(0.055, 0.07, 0.08);
+    panelMaterial.emissiveColor = new Color3(0.08, 0.14, 0.13);
+    panelMaterial.roughness = 0.52;
+    panelMaterial.metallic = 0.48;
+    this.bypassPanel = MeshBuilder.CreateBox("cctv-bypass-panel", { width: 0.34, height: 0.52, depth: 0.12 }, scene);
+    this.bypassPanel.position = new Vector3(-6.88, 1.28, 5.5);
+    this.bypassPanel.material = panelMaterial;
+    this.bypassPanel.checkCollisions = false;
+  }
+
+  update(dt: number, playerPosition: Vector3, playerCollider: Mesh, active: boolean): AwarenessSnapshot {
+    if (this.bypassed || !active || !this.cameraMesh) {
+      this.awareness = Math.max(0, this.awareness - dt * 1.8);
+      return { state: this.state(), meter: this.awareness, label: "CCTV" };
+    }
+    this.senseTimer -= dt;
+    if (this.senseTimer > 0) return { state: this.state(), meter: this.awareness, label: "CCTV" };
+    this.senseTimer = 0.09;
+
+    const origin = this.cameraMesh.position.add(new Vector3(0, 0.02, 0));
+    const playerEye = playerPosition.add(new Vector3(0, 0.55, 0));
+    const toPlayer = playerEye.subtract(origin);
+    const distance = toPlayer.length();
+    let visible = false;
+    if (distance > 0.001 && distance <= 11.5) {
+      const direction = toPlayer.scale(1 / distance);
+      const cameraForward = new Vector3(0.08, -0.2, 0.977).normalize();
+      if (Vector3.Dot(cameraForward, direction) > 0.73) {
+        const occluder = this.scene.pickWithRay(
+          new Ray(origin, direction, distance),
+          (mesh) => mesh instanceof Mesh && mesh.checkCollisions && mesh !== playerCollider,
+        );
+        visible = !occluder?.hit || (occluder.distance ?? distance) >= distance - 0.25;
+      }
+    }
+
+    if (visible) this.awareness = Math.min(1, this.awareness + 0.09 * 0.95);
+    else this.awareness = Math.max(0, this.awareness - 0.09 * 0.62);
+
+    if (this.awareness >= 0.98 && !this.alertedCycle) {
+      this.alertedCycle = true;
+      this.onAlert();
+    }
+    if (this.awareness < 0.35) this.alertedCycle = false;
+    return { state: this.state(), meter: this.awareness, label: "CCTV" };
+  }
+
+  canBypass(cameraIntelDiscovered: boolean, active: boolean): boolean {
+    return !this.bypassed && cameraIntelDiscovered && active;
+  }
+
+  bypass(): boolean {
+    if (this.bypassed) return false;
+    this.bypassed = true;
+    this.awareness = 0;
+    const material = this.bypassPanel.material;
+    if (material instanceof PBRMaterial) material.emissiveColor = new Color3(0.06, 0.24, 0.12);
+    return true;
+  }
+
+  applyQuality(tier: "LOW" | "MEDIUM" | "HIGH" | "ULTRA"): void {
+    this.bypassPanel.setEnabled(true);
+    if (this.cameraMesh) this.cameraMesh.setEnabled(true);
+    if (tier === "LOW") this.senseTimer = Math.max(this.senseTimer, 0.14);
+  }
+
+  private state(): AwarenessSnapshot["state"] {
+    return this.awareness >= 0.86 ? "ALERT" : this.awareness >= 0.56 ? "SUSPICIOUS" : this.awareness >= 0.22 ? "CURIOUS" : "NORMAL";
+  }
+}
