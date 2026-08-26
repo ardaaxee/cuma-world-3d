@@ -161,15 +161,14 @@ export class PlayerCharacter {
 
     const sun = this.scene.getLightByName("sun");
     if (!(sun instanceof ShadowLight)) return;
-    const generator = sun.getShadowGenerator();
-    const shadowMap = generator?.getShadowMap();
+    const shadowMap = sun.getShadowGenerator()?.getShadowMap();
     const renderList = shadowMap?.renderList;
-    if (!generator || !renderList || renderList.length === 0) return;
+    if (!renderList || renderList.length === 0) return;
 
     const characterMeshes = this.imported ? this.importedMeshes : this.proceduralParts;
     for (const mesh of characterMeshes) {
       if (mesh.isDisposed() || renderList.includes(mesh)) continue;
-      generator.addShadowCaster(mesh);
+      renderList.push(mesh);
     }
   }
 
