@@ -32,6 +32,8 @@ class NpcAgent {
   private state: AwarenessState = "NORMAL";
   private alertedCycle = false;
   private senseTimer = 0;
+  private senseInterval = 0.11;
+  private enabled = true;
   private lastSeenPosition: Vector3 | null = null;
   private investigateTimer = 0;
 
@@ -81,18 +83,35 @@ class NpcAgent {
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
+    if (!this.enabled) return { state: "NORMAL", meter: 0, label: this.config.name };
+
     this.investigateTimer = Math.max(0, this.investigateTimer - dt);
     this.updatePatrol(dt);
     this.senseTimer -= dt;
     if (this.senseTimer <= 0) {
-      this.senseTimer = 0.11;
-      this.updateAwareness(0.11, playerPosition, playerCollider, awarenessActive);
+      const step = this.senseInterval;
+      this.senseTimer = step;
+      this.updateAwareness(step, playerPosition, playerCollider, awarenessActive);
     }
     return { state: this.state, meter: this.awareness, label: this.config.name };
   }
 
   setEnabled(enabled: boolean): void {
+    this.enabled = enabled;
     this.root.setEnabled(enabled);
+    if (!enabled) {
+      this.awareness = 0;
+      this.state = "NORMAL";
+      this.alertedCycle = false;
+      this.investigateTimer = 0;
+      this.lastSeenPosition = null;
+      this.senseTimer = this.senseInterval;
+    }
+  }
+
+  setSenseInterval(seconds: number): void {
+    this.senseInterval = Math.max(0.08, Math.min(0.24, seconds));
+    this.senseTimer = Math.min(this.senseTimer, this.senseInterval);
   }
 
   private updatePatrol(dt: number): void {
@@ -225,6 +244,10 @@ export class NpcSystem {
   }
 
   applyQuality(tier: "LOW" | "MEDIUM" | "HIGH" | "ULTRA"): void {
-    this.agents.forEach((agent, index) => agent.setEnabled(tier !== "LOW" || index < 2));
+    const senseInterval = tier === "LOW" ? 0.18 : tier === "MEDIUM" ? 0.14 : tier === "ULTRA" ? 0.09 : 0.11;
+    this.agents.forEach((agent, index) => {
+      agent.setSenseInterval(senseInterval);
+      agent.setEnabled(tier !== "LOW" || index < 2);
+    });
   }
 }
