@@ -6,6 +6,7 @@ import {
   PBRMaterial,
   Scene,
   SceneLoader,
+  ShadowLight,
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
@@ -15,12 +16,14 @@ export class PlayerCharacter {
   readonly visualRoot: TransformNode;
   readonly cameraTarget: TransformNode;
   private readonly proceduralParts: Mesh[] = [];
+  private readonly importedMeshes: Mesh[] = [];
   private readonly importedAnimations = new Map<"idle" | "walk" | "run", AnimationGroup>();
   private currentAnimation: "" | "idle" | "walk" | "run" = "";
   private imported = false;
   private speed = 0;
   private stride = 0;
   private idlePhase = 0;
+  private shadowRefreshClock = 0;
   private torsoPivot: TransformNode | null = null;
   private headPivot: TransformNode | null = null;
   private leftArmPivot: TransformNode | null = null;
@@ -67,6 +70,7 @@ export class PlayerCharacter {
 
   update(speed: number, dt: number, reducedMotion: boolean): void {
     this.speed += (speed - this.speed) * (1 - Math.exp(-10 * dt));
+    this.syncShadowCasters(dt);
     if (this.imported) {
       this.updateImportedAnimation(this.speed);
       return;
@@ -113,7 +117,10 @@ export class PlayerCharacter {
       for (const mesh of result.meshes) {
         if (mesh.parent === null) mesh.parent = this.visualRoot;
         mesh.isPickable = false;
-        if (mesh instanceof Mesh) mesh.receiveShadows = true;
+        if (mesh instanceof Mesh) {
+          mesh.receiveShadows = true;
+          this.importedMeshes.push(mesh);
+        }
       }
       root.scaling = new Vector3(1, 1, 1);
       root.position = Vector3.Zero();
@@ -123,9 +130,11 @@ export class PlayerCharacter {
         else if (/walk|locomotion/i.test(group.name) && !this.importedAnimations.has("walk")) this.importedAnimations.set("walk", group);
       }
       this.imported = true;
+      this.shadowRefreshClock = 0;
       this.playImportedAnimation("idle");
     } catch {
       this.imported = false;
+      this.importedMeshes.length = 0;
     }
   }
 
@@ -143,6 +152,25 @@ export class PlayerCharacter {
     }
     if (!group.isPlaying) group.start(true, name === "run" ? 1.08 : 1.0);
     this.currentAnimation = name;
+  }
+
+  private syncShadowCasters(dt: number): void {
+    this.shadowRefreshClock -= dt;
+    if (this.shadowRefreshClock > 0) return;
+    this.shadowRefreshClock = 0.5;
+
+    const sun = this.scene.getLightByName("sun");
+    if (!(sun instanceof ShadowLight)) return;
+    const generator = sun.getShadowGenerator();
+    const shadowMap = generator?.getShadowMap();
+    const renderList = shadowMap?.renderList;
+    if (!generator || !renderList || renderList.length === 0) return;
+
+    const characterMeshes = this.imported ? this.importedMeshes : this.proceduralParts;
+    for (const mesh of characterMeshes) {
+      if (mesh.isDisposed() || renderList.includes(mesh)) continue;
+      generator.addShadowCaster(mesh);
+    }
   }
 
   private buildProceduralFallback(): void {
