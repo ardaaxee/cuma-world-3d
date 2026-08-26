@@ -19,6 +19,7 @@ from apply_cinematic_action_71 import main as apply_cinematic_action_71
 from apply_cinematic_action_72 import main as apply_cinematic_action_72
 from apply_intelligence_completion_73 import main as apply_intelligence_completion_73
 from apply_aaa_polish_90 import main as apply_aaa_polish_90
+from apply_spycraft_gameplay_91 import main as apply_spycraft_gameplay_91
 from audio_mix_61_contract import main as check_audio_mix_61
 from character_50_contract import main as check_character_50
 from city_visual_52_contract import main as check_city_visual_52
@@ -27,6 +28,7 @@ from cinematic_action_71_contract import main as check_cinematic_action_71
 from cinematic_action_72_contract import main as check_cinematic_action_72
 from intelligence_completion_73_contract import main as check_intelligence_completion_73
 from aaa_polish_90_contract import main as check_aaa_polish_90
+from spycraft_gameplay_91_contract import main as check_spycraft_gameplay_91
 from cinematic_menu_contract import main as check_cinematic_menu
 from field_ops_60_contract import main as check_field_ops_60
 from field_ui_63_contract import main as check_field_ui_63
@@ -67,6 +69,10 @@ def main() -> None:
     # without creating duplicate gameplay systems.
     apply_aaa_polish_90()
     check_aaa_polish_90()
+    # Spycraft 9.1 composes the existing mission/intel/awareness/Field Ops stack.
+    # It deliberately does not create a second mission, stealth or phone system.
+    apply_spycraft_gameplay_91()
+    check_spycraft_gameplay_91()
     check_audio_mix_61()
     check_character_50()
     check_city_visual_52()
@@ -79,7 +85,7 @@ def main() -> None:
     check_startup_stability_65()
     check_visual_overhaul_50()
     check_visual_polish_51()
-    print("CI patch layer + CUMA WORLD AAA Polish 9.0 P0 complete.")
+    print("CI patch layer + CUMA WORLD AAA Polish 9.0 + Spycraft Gameplay 9.1 complete.")
 
 
 if __name__ == "__main__":
