@@ -21,7 +21,7 @@ def main() -> None:
     require(ROOT / "scripts/player_controller.gd", [
         "camera_bob_time",
         "func _update_camera_motion(",
-        "target_fov = 76.0",
+        "74.2 if reduced_motion else 76.0",
         "is_reduced_motion",
     ])
     require(ROOT / "scripts/mobile_controls.gd", [
