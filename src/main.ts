@@ -1,5 +1,5 @@
 import "./styles.css";
-import { GameRuntime } from "./game/runtime";
+import { GameRuntime } from "./game/runtime11";
 import {
   type FpsSetting,
   type GraphicsPreferences,
@@ -8,6 +8,14 @@ import {
   type ShadowSetting,
   saveGraphicsPreferences,
 } from "./game/graphics";
+import {
+  type AudioVolume,
+  type GameplayPreferences,
+  type HudMode,
+  type LookSensitivity,
+  loadGameplayPreferences,
+  saveGameplayPreferences,
+} from "./game/preferences";
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -30,14 +38,17 @@ const fpsSelect = required<HTMLSelectElement>("#graphics-fps");
 const shadowsSelect = required<HTMLSelectElement>("#graphics-shadows");
 const reducedMotion = required<HTMLInputElement>("#reduced-motion");
 const graphicsStatus = required<HTMLElement>("#graphics-status");
+const lookSensitivitySelect = required<HTMLSelectElement>("#look-sensitivity");
+const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
+const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
 
 const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
-buildLabel.textContent = `ANDROID PLAY RUNTIME · ${buildSha.toUpperCase()} · PRE-RELEASE`;
+buildLabel.textContent = `ANDROID PLAY RUNTIME 11 · ${buildSha.toUpperCase()} · PRE-RELEASE`;
 
 const runtime = new GameRuntime(canvas);
 runtime.start();
 
-function syncControls(preferences: GraphicsPreferences): void {
+function syncGraphicsControls(preferences: GraphicsPreferences): void {
   tierSelect.value = preferences.tier;
   fpsSelect.value = String(preferences.fps);
   resolutionSelect.value = String(preferences.resolution);
@@ -45,7 +56,7 @@ function syncControls(preferences: GraphicsPreferences): void {
   reducedMotion.checked = preferences.reducedMotion;
 }
 
-function readPreferences(): GraphicsPreferences {
+function readGraphicsPreferences(): GraphicsPreferences {
   return {
     tier: tierSelect.value as GraphicsTier,
     fps: (fpsSelect.value === "AUTO" ? "AUTO" : Number(fpsSelect.value)) as FpsSetting,
@@ -55,11 +66,33 @@ function readPreferences(): GraphicsPreferences {
   };
 }
 
-function applyPreferences(): void {
-  const preferences = readPreferences();
+function applyGraphicsPreferences(): void {
+  const preferences = readGraphicsPreferences();
   saveGraphicsPreferences(preferences);
   const profile = runtime.applyGraphicsPreferences(preferences);
   graphicsStatus.textContent = `${profile.tier} · RENDER %${Math.round(profile.renderScale * 100)} · ${profile.targetFps} FPS · GÖLGE ${profile.shadowsEnabled ? (profile.softShadows ? "YUMUŞAK" : "AÇIK") : "KAPALI"} · GÖRÜŞ ${profile.cameraFar}M`;
+}
+
+function syncGameplayControls(preferences: GameplayPreferences): void {
+  lookSensitivitySelect.value = String(preferences.lookSensitivity);
+  audioVolumeSelect.value = String(preferences.audioVolume);
+  hudModeSelect.value = preferences.hudMode;
+}
+
+function readGameplayPreferences(): GameplayPreferences {
+  return {
+    lookSensitivity: Number(lookSensitivitySelect.value) as LookSensitivity,
+    audioVolume: Number(audioVolumeSelect.value) as AudioVolume,
+    hudMode: hudModeSelect.value as HudMode,
+  };
+}
+
+function applyGameplayPreferences(): void {
+  const preferences = readGameplayPreferences();
+  saveGameplayPreferences(preferences);
+  runtime.setLookSensitivity(preferences.lookSensitivity);
+  runtime.setAudioVolume(preferences.audioVolume);
+  document.body.classList.toggle("hud-compact", preferences.hudMode === "COMPACT");
 }
 
 function openSettings(): void {
@@ -74,11 +107,17 @@ function closeSettings(): void {
   runtime.setPaused(false);
 }
 
-syncControls(runtime.getGraphicsPreferences());
-applyPreferences();
+syncGraphicsControls(runtime.getGraphicsPreferences());
+applyGraphicsPreferences();
+const gameplayPreferences = loadGameplayPreferences();
+syncGameplayControls(gameplayPreferences);
+applyGameplayPreferences();
 
 for (const element of [tierSelect, resolutionSelect, fpsSelect, shadowsSelect, reducedMotion]) {
-  element.addEventListener("change", applyPreferences);
+  element.addEventListener("change", applyGraphicsPreferences);
+}
+for (const element of [lookSensitivitySelect, audioVolumeSelect, hudModeSelect]) {
+  element.addEventListener("change", applyGameplayPreferences);
 }
 
 settingsOpen.addEventListener("click", openSettings);
@@ -91,4 +130,5 @@ enter.addEventListener("click", () => {
   boot.classList.add("hidden");
   hud.classList.remove("hidden");
   controls.classList.remove("hidden");
+  void runtime.unlockAudio();
 });
