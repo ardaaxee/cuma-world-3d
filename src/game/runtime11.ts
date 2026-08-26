@@ -16,6 +16,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { GameAudio } from "./audio";
+import { resolveThirdPersonCameraCollision } from "./camera-collision";
 import { PlayerCharacter } from "./character";
 import { MobileInput } from "./input";
 import { MissionDirector } from "./mission";
@@ -254,24 +255,16 @@ export class GameRuntime {
     ).normalize();
     const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
     const desired = target.subtract(lookDirection.scale(this.cameraDistance)).add(right.scale(this.shoulderOffset));
-    const cameraPath = desired.subtract(target);
-    const distance = cameraPath.length();
-    const direction = distance > 0.001 ? cameraPath.scale(1 / distance) : new Vector3(0, 0, -1);
-    const hit = this.scene.pickWithRay(
-      new Ray(target, direction, distance),
-      (mesh) => mesh instanceof Mesh && mesh.checkCollisions && mesh !== this.player.collider,
+    const collision = resolveThirdPersonCameraCollision(
+      this.scene,
+      target,
+      desired,
+      right,
+      this.player.collider,
     );
 
-    let resolved = desired;
-    let blocked = false;
-    if (hit?.hit && typeof hit.distance === "number") {
-      const safeDistance = Math.max(0.68, hit.distance - 0.24);
-      resolved = target.add(direction.scale(safeDistance));
-      blocked = safeDistance < distance - 0.08;
-    }
-
-    if (force || blocked || dt <= 0) this.camera.position.copyFrom(resolved);
-    else this.camera.position.copyFrom(Vector3.Lerp(this.camera.position, resolved, 1 - Math.exp(-14 * dt)));
+    if (force || collision.blocked || dt <= 0) this.camera.position.copyFrom(collision.position);
+    else this.camera.position.copyFrom(Vector3.Lerp(this.camera.position, collision.position, 1 - Math.exp(-14 * dt)));
     this.camera.setTarget(target.add(lookDirection.scale(7)));
   }
 
