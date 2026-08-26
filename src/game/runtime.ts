@@ -4,12 +4,14 @@ import {
   DirectionalLight,
   Engine,
   HemisphericLight,
+  Material,
   Mesh,
   MeshBuilder,
   PBRMaterial,
   Ray,
   Scene,
   ShadowGenerator,
+  StandardMaterial,
   UniversalCamera,
   Vector3,
 } from "@babylonjs/core";
@@ -50,21 +52,28 @@ export class GameRuntime {
       powerPreference: "high-performance",
     });
     const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    this.engine.setHardwareScalingLevel(mobile ? 1.35 : Math.max(1, window.devicePixelRatio / 1.5));
+    this.engine.setHardwareScalingLevel(mobile ? 1.28 : Math.max(1, window.devicePixelRatio / 1.5));
 
     this.scene = new Scene(this.engine);
-    this.scene.clearColor = new Color4(0.035, 0.045, 0.06, 1);
+    this.scene.clearColor = new Color4(0.36, 0.45, 0.54, 1);
     this.scene.collisionsEnabled = true;
     this.scene.gravity = new Vector3(0, -0.28, 0);
+    this.scene.fogMode = Scene.FOGMODE_LINEAR;
+    this.scene.fogColor = new Color3(0.36, 0.43, 0.5);
+    this.scene.fogStart = 34;
+    this.scene.fogEnd = 105;
+    this.scene.imageProcessingConfiguration.toneMappingEnabled = true;
+    this.scene.imageProcessingConfiguration.exposure = 1.06;
+    this.scene.imageProcessingConfiguration.contrast = 1.08;
 
     this.camera = new UniversalCamera("player-camera", new Vector3(0, 1.72, -8), this.scene);
     this.camera.fov = 70 * Math.PI / 180;
-    this.camera.minZ = 0.05;
-    this.camera.maxZ = 140;
+    this.camera.minZ = 0.12;
+    this.camera.maxZ = 150;
     this.camera.inputs.clear();
     this.camera.checkCollisions = true;
     this.camera.applyGravity = true;
-    this.camera.ellipsoid = new Vector3(0.34, 0.82, 0.34);
+    this.camera.ellipsoid = new Vector3(0.42, 0.86, 0.42);
     this.camera.ellipsoidOffset = new Vector3(0, -0.78, 0);
 
     this.buildWorld();
@@ -86,8 +95,8 @@ export class GameRuntime {
 
   private update(dt: number): void {
     const frame = this.input.frame();
-    this.yaw -= frame.lookX * 0.00255;
-    this.pitch = Math.max(-1.12, Math.min(1.02, this.pitch - frame.lookY * 0.0022));
+    this.yaw -= frame.lookX * 0.00235;
+    this.pitch = Math.max(-1.04, Math.min(0.94, this.pitch - frame.lookY * 0.00205));
     this.camera.rotation.set(this.pitch, this.yaw, 0);
 
     const forward = new Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
@@ -95,20 +104,21 @@ export class GameRuntime {
     const desired = forward.scale(frame.moveY).add(right.scale(frame.moveX));
     const strength = Math.min(1, desired.length());
     if (strength > 0.001) desired.normalize();
-    const speed = 4.25 * strength;
+    const speed = 4.15 * strength;
     const target = desired.scale(speed);
-    const accel = strength > 0.01 ? 13.5 : 20.0;
+    const accel = strength > 0.01 ? 12.5 : 21.0;
     this.velocity = Vector3.Lerp(this.velocity, target, 1 - Math.exp(-accel * dt));
     this.camera.cameraDirection.addInPlace(this.velocity.scale(dt));
     this.running = strength > 0.86;
-    const targetFov = (this.running ? 73.5 : 70) * Math.PI / 180;
+    const targetFov = (this.running ? 73 : 70) * Math.PI / 180;
     this.camera.fov += (targetFov - this.camera.fov) * (1 - Math.exp(-5.5 * dt));
 
     if (frame.observePressed) {
       this.observation = !this.observation;
       this.analysisSeconds = 0;
       this.observedMesh = null;
-      this.observationEl.classList.toggle("hidden", !this.observation);
+      this.observationEl.classList.add("hidden");
+      document.body.classList.toggle("recon-active", this.observation);
     }
 
     if (this.observation) this.updateObservation(dt);
@@ -123,9 +133,10 @@ export class GameRuntime {
     if (!mesh) {
       this.observedMesh = null;
       this.analysisSeconds = Math.max(0, this.analysisSeconds - dt * 2.2);
-      this.observationEl.textContent = "RECON LENS · HEDEF YOK";
+      this.observationEl.classList.add("hidden");
       return;
     }
+    this.observationEl.classList.remove("hidden");
     if (mesh !== this.observedMesh) {
       this.observedMesh = mesh;
       this.analysisSeconds = 0;
@@ -171,25 +182,49 @@ export class GameRuntime {
   }
 
   private buildWorld(): void {
-    const hemi = new HemisphericLight("sky", new Vector3(0.15, 1, 0.1), this.scene);
-    hemi.intensity = 0.58;
-    hemi.diffuse = new Color3(0.72, 0.78, 0.9);
-    hemi.groundColor = new Color3(0.12, 0.11, 0.1);
-    const sun = new DirectionalLight("sun", new Vector3(-0.35, -0.9, 0.42), this.scene);
-    sun.position = new Vector3(18, 28, -15);
-    sun.intensity = 2.2;
+    this.buildSky();
+
+    const hemi = new HemisphericLight("sky-light", new Vector3(0.12, 1, 0.08), this.scene);
+    hemi.intensity = 0.82;
+    hemi.diffuse = new Color3(0.9, 0.92, 1.0);
+    hemi.groundColor = new Color3(0.2, 0.18, 0.15);
+
+    const sun = new DirectionalLight("sun", new Vector3(-0.42, -0.86, 0.34), this.scene);
+    sun.position = new Vector3(22, 31, -20);
+    sun.intensity = 2.55;
+    sun.diffuse = new Color3(1.0, 0.9, 0.76);
     const shadows = new ShadowGenerator(1024, sun);
     shadows.usePercentageCloserFiltering = true;
 
-    const concrete = this.material("concrete", new Color3(0.22, 0.24, 0.25), 0.88, 0.0);
-    const plaster = this.material("plaster", new Color3(0.52, 0.5, 0.45), 0.92, 0.0);
-    const metal = this.material("metal", new Color3(0.12, 0.14, 0.16), 0.34, 0.72);
-    const accent = this.material("accent", new Color3(0.46, 0.34, 0.19), 0.62, 0.05);
+    const asphalt = this.material("asphalt", new Color3(0.105, 0.12, 0.13), 0.96, 0.0);
+    const concrete = this.material("sidewalk", new Color3(0.42, 0.43, 0.41), 0.91, 0.0);
+    const interiorFloor = this.material("interior-floor", new Color3(0.36, 0.31, 0.25), 0.76, 0.02);
+    const plaster = this.material("warm-plaster", new Color3(0.69, 0.64, 0.54), 0.91, 0.0);
+    const trim = this.material("trim", new Color3(0.12, 0.135, 0.15), 0.58, 0.28);
+    const metal = this.material("metal", new Color3(0.095, 0.11, 0.125), 0.32, 0.74);
+    const wood = this.material("wood", new Color3(0.38, 0.22, 0.11), 0.67, 0.03);
+    const accent = this.material("accent", new Color3(0.62, 0.43, 0.2), 0.58, 0.06);
+    const green = this.material("plant", new Color3(0.1, 0.24, 0.12), 0.92, 0.0);
+    const glass = this.material("glass", new Color3(0.16, 0.25, 0.31), 0.12, 0.18);
+    glass.alpha = 0.34;
+    glass.transparencyMode = Material.MATERIAL_ALPHABLEND;
+    glass.environmentIntensity = 0.85;
 
-    const ground = MeshBuilder.CreateGround("ground", { width: 70, height: 70 }, this.scene);
-    ground.material = concrete;
+    const ground = MeshBuilder.CreateGround("world-ground", { width: 90, height: 110 }, this.scene);
+    ground.position.z = 10;
+    ground.material = asphalt;
     ground.checkCollisions = true;
     ground.receiveShadows = true;
+
+    const plaza = this.box("market-plaza", new Vector3(0, 0.045, 3.5), new Vector3(22, 0.09, 22), concrete, true);
+    plaza.receiveShadows = true;
+    const road = this.box("street", new Vector3(0, 0.07, -19), new Vector3(38, 0.12, 18), asphalt, true);
+    road.receiveShadows = true;
+    this.box("curb-left", new Vector3(-10.9, 0.15, -3), new Vector3(0.24, 0.3, 22), concrete, true);
+    this.box("curb-right", new Vector3(10.9, 0.15, -3), new Vector3(0.24, 0.3, 22), concrete, true);
+
+    const floor = this.box("market-floor", new Vector3(0, 0.1, 8.1), new Vector3(14.4, 0.18, 11.6), interiorFloor, true);
+    floor.receiveShadows = true;
 
     this.box("market-back", new Vector3(0, 2.1, 14), new Vector3(15, 4.2, 0.45), plaster, true);
     this.box("market-left", new Vector3(-7.25, 2.1, 8), new Vector3(0.45, 4.2, 12), plaster, true);
@@ -197,33 +232,78 @@ export class GameRuntime {
     this.box("front-a", new Vector3(-4.9, 2.1, 2), new Vector3(4.7, 4.2, 0.45), plaster, true);
     this.box("front-b", new Vector3(4.9, 2.1, 2), new Vector3(4.7, 4.2, 0.45), plaster, true);
 
-    const front = this.box("front-route", new Vector3(0, 1.35, 2.15), new Vector3(3.8, 2.7, 0.12), accent, false);
-    front.visibility = 0.08;
+    this.box("facade-trim-top", new Vector3(0, 4.05, 2.05), new Vector3(15.2, 0.28, 0.62), trim, false);
+    this.box("entry-frame-left", new Vector3(-2.55, 2.05, 2), new Vector3(0.18, 4.1, 0.64), trim, false);
+    this.box("entry-frame-right", new Vector3(2.55, 2.05, 2), new Vector3(0.18, 4.1, 0.64), trim, false);
+    this.box("entry-frame-top", new Vector3(0, 3.96, 2), new Vector3(5.25, 0.18, 0.64), trim, false);
+    this.box("glass-left", new Vector3(-1.3, 2.05, 2.05), new Vector3(2.25, 3.62, 0.09), glass, false);
+    this.box("glass-right", new Vector3(1.3, 2.05, 2.05), new Vector3(2.25, 3.62, 0.09), glass, false);
+    this.box("canopy", new Vector3(0, 3.55, 1.25), new Vector3(7.2, 0.18, 1.35), trim, false);
+    this.box("market-sign", new Vector3(0, 3.55, 1.05), new Vector3(4.4, 0.62, 0.12), accent, false);
+
+    for (const x of [-5.4, -3.9, 3.9, 5.4]) {
+      this.box(`window-${x}`, new Vector3(x, 2.15, 1.76), new Vector3(1.18, 2.45, 0.08), glass, false);
+      this.box(`window-sill-${x}`, new Vector3(x, 0.88, 1.65), new Vector3(1.35, 0.12, 0.32), trim, false);
+    }
+
+    const front = this.box("front-route", new Vector3(0, 1.35, 2.2), new Vector3(3.8, 2.7, 0.08), accent, false);
+    front.visibility = 0.02;
     front.metadata = { intelId: "market_front_access", label: "ANA GİRİŞ", interaction: "route-main" } satisfies GameMetadata;
 
-    const side = this.box("side-route", new Vector3(7.05, 1.35, 10.2), new Vector3(0.12, 2.7, 2.5), accent, false);
-    side.visibility = 0.08;
+    const side = this.box("side-route", new Vector3(7.02, 1.35, 10.2), new Vector3(0.08, 2.7, 2.5), accent, false);
+    side.visibility = 0.02;
     side.metadata = { intelId: "market_side_access", label: "TESLİMAT GİRİŞİ", interaction: "route-side" } satisfies GameMetadata;
+    this.box("side-door-frame", new Vector3(7.01, 1.55, 10.2), new Vector3(0.22, 3.1, 2.75), trim, false);
+    this.box("side-door", new Vector3(6.92, 1.52, 10.2), new Vector3(0.12, 2.85, 2.25), metal, false);
 
-    const desk = this.box("dispatch-desk", new Vector3(1.4, 0.55, 11.2), new Vector3(2.8, 1.1, 1.0), accent, true);
+    const desk = this.box("dispatch-desk", new Vector3(1.4, 0.62, 11.2), new Vector3(3.1, 1.18, 1.1), wood, true);
     shadows.addShadowCaster(desk);
-    const record = this.box("dispatch-record", new Vector3(1.4, 1.18, 11.2), new Vector3(0.65, 0.08, 0.45), metal, false);
+    this.box("desk-top", new Vector3(1.4, 1.24, 11.2), new Vector3(3.28, 0.12, 1.2), trim, false);
+    const record = this.box("dispatch-record", new Vector3(1.4, 1.34, 11.2), new Vector3(0.65, 0.07, 0.45), accent, false);
     record.metadata = { label: "TESLİMAT KAYDI", interaction: "objective" } satisfies GameMetadata;
 
-    const camera = MeshBuilder.CreateCylinder("fictional-camera", { height: 0.55, diameter: 0.22 }, this.scene);
-    camera.position = new Vector3(-3.5, 3.25, 2.4);
-    camera.rotation.z = Math.PI / 2;
-    camera.material = metal;
-    camera.metadata = { intelId: "market_camera", label: "GÜVENLİK KAMERASI" } satisfies GameMetadata;
-    shadows.addShadowCaster(camera);
+    for (const x of [-3.9, 0, 3.9]) {
+      for (const z of [6.2, 8.5]) {
+        this.box(`shelf-${x}-${z}`, new Vector3(x, 1.05, z), new Vector3(2.15, 2.05, 0.5), trim, true);
+        this.box(`stock-${x}-${z}`, new Vector3(x, 1.4, z), new Vector3(1.72, 0.48, 0.62), accent, false);
+      }
+    }
+
+    const cctv = MeshBuilder.CreateCylinder("fictional-camera", { height: 0.55, diameter: 0.22 }, this.scene);
+    cctv.position = new Vector3(-3.5, 3.25, 2.4);
+    cctv.rotation.z = Math.PI / 2;
+    cctv.material = metal;
+    cctv.metadata = { intelId: "market_camera", label: "GÜVENLİK KAMERASI" } satisfies GameMetadata;
+    shadows.addShadowCaster(cctv);
 
     const workerMarker = this.box("worker-route-intel", new Vector3(-2.8, 1.1, 8.2), new Vector3(0.3, 2.1, 0.3), metal, false);
-    workerMarker.visibility = 0.04;
+    workerMarker.visibility = 0.02;
     workerMarker.metadata = { intelId: "market_worker_route", label: "ÇALIŞAN RUTİNİ" } satisfies GameMetadata;
 
-    const extraction = this.box("extraction", new Vector3(0, 1, -12), new Vector3(5, 2, 0.2), accent, false);
-    extraction.visibility = 0.025;
+    for (const x of [-8.5, 8.5]) {
+      const planter = this.box(`planter-${x}`, new Vector3(x, 0.38, -0.5), new Vector3(1.35, 0.72, 1.35), concrete, true);
+      shadows.addShadowCaster(planter);
+      const plant = MeshBuilder.CreateSphere(`plant-${x}`, { diameter: 1.35, segments: 8 }, this.scene);
+      plant.position = new Vector3(x, 1.25, -0.5);
+      plant.scaling.y = 1.35;
+      plant.material = green;
+      shadows.addShadowCaster(plant);
+    }
+
+    const extraction = this.box("extraction", new Vector3(0, 1, -12), new Vector3(5, 2, 0.12), accent, false);
+    extraction.visibility = 0.015;
     extraction.metadata = { label: "EXTRACTION", interaction: "extract" } satisfies GameMetadata;
+  }
+
+  private buildSky(): void {
+    const sky = MeshBuilder.CreateSphere("sky-dome", { diameter: 220, segments: 16 }, this.scene);
+    const skyMaterial = new StandardMaterial("sky-material", this.scene);
+    skyMaterial.backFaceCulling = false;
+    skyMaterial.disableLighting = true;
+    skyMaterial.emissiveColor = new Color3(0.38, 0.49, 0.62);
+    sky.material = skyMaterial;
+    sky.isPickable = false;
+    sky.infiniteDistance = true;
   }
 
   private box(name: string, position: Vector3, size: Vector3, material: PBRMaterial, collision: boolean): Mesh {
@@ -240,7 +320,7 @@ export class GameRuntime {
     material.albedoColor = color;
     material.roughness = roughness;
     material.metallic = metallic;
-    material.environmentIntensity = 0.55;
+    material.environmentIntensity = 0.64;
     return material;
   }
 }
