@@ -7,11 +7,11 @@ const RESPONSE_POWER := 1.15
 const MIN_RADIUS := 42.0
 const MAX_RADIUS := 62.0
 
-var touch_id := -1
-var mouse_active := false
-var direction := Vector2.ZERO
-var radius := 50.0
-var sensitivity := 1.0
+var touch_id = -1
+var mouse_active = false
+var direction = Vector2.ZERO
+var radius = 50.0
+var sensitivity = 1.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP

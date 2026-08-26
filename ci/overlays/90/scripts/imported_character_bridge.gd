@@ -2,13 +2,13 @@ extends Node
 
 var animation_player: AnimationPlayer
 var animations: Dictionary = {}
-var current_state := ""
-var available := false
-var action_until := 0
-var locked_action := ""
-var activity_state := ""
-var was_grounded := true
-var land_until := 0
+var current_state = ""
+var available = false
+var action_until = 0
+var locked_action = ""
+var activity_state = ""
+var was_grounded = true
+var land_until = 0
 
 const STATE_ALIASES := {
 	"Idle": ["idle", "stand", "breath", "rest"],

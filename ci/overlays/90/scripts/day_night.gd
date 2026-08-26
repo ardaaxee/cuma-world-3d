@@ -2,8 +2,8 @@ extends Node
 
 var sun: DirectionalLight3D
 var environment: Environment
-var last_time := -100.0
-var last_weather := ""
+var last_time = -100.0
+var last_weather = ""
 
 func setup(sun_node: DirectionalLight3D, env: Environment) -> void:
 	sun = sun_node

@@ -2,8 +2,8 @@ extends Node
 
 const PROFILES := ["AUTO", "LOW", "MEDIUM", "HIGH", "ULTRA"]
 
-var requested_profile := "MEDIUM"
-var resolved_profile := "MEDIUM"
+var requested_profile = "MEDIUM"
+var resolved_profile = "MEDIUM"
 
 func _ready() -> void:
 	add_to_group("graphics_manager")

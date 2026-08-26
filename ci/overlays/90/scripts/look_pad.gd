@@ -5,10 +5,10 @@ signal look_dragged(delta: Vector2)
 const DELTA_LIMIT := 72.0
 const SMOOTH_WEIGHT := 0.72
 
-var touch_id := -1
-var last_position := Vector2.ZERO
-var mouse_active := false
-var smoothed_delta := Vector2.ZERO
+var touch_id = -1
+var last_position = Vector2.ZERO
+var mouse_active = false
+var smoothed_delta = Vector2.ZERO
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
