@@ -79,14 +79,14 @@ export class PlayerCharacter {
       const response = await fetch("./assets/characters/cuma_runtime.glb", { method: "HEAD", cache: "no-store" });
       if (!response.ok) return;
       const result = await SceneLoader.ImportMeshAsync("", "./assets/characters/", "cuma_runtime.glb", this.scene);
-      if (result.meshes.length === 0) return;
+      const root = result.meshes[0];
+      if (!root) return;
       for (const part of this.proceduralParts) part.setEnabled(false);
       for (const mesh of result.meshes) {
         if (mesh.parent === null) mesh.parent = this.visualRoot;
         mesh.isPickable = false;
         if (mesh instanceof Mesh) mesh.receiveShadows = true;
       }
-      const root = result.meshes[0];
       root.scaling = new Vector3(1, 1, 1);
       root.position = Vector3.Zero();
       this.imported = true;
