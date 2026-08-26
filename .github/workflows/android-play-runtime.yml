@@ -8,6 +8,7 @@ on:
       - 'public/**'
       - 'ci/measure_android_web_bundle.py'
       - 'ci/install_high_character.py'
+      - 'ci/validate_android_character_glb.py'
       - 'index.html'
       - 'package.json'
       - 'tsconfig.json'
@@ -75,13 +76,7 @@ jobs:
 
           test -s public/assets/characters/cuma_runtime.glb
           test -s public/assets/characters/CUMA_HIGH_LICENSE.txt
-          python3 - <<'PY'
-          from pathlib import Path
-          data = Path('public/assets/characters/cuma_runtime.glb').read_bytes()
-          if data[:4] != b'glTF':
-              raise SystemExit('CUMA runtime character is not a GLB file')
-          print(f'CUMA_ANDROID_CHARACTER_OK bytes={len(data)}')
-          PY
+          python3 ci/validate_android_character_glb.py public/assets/characters/cuma_runtime.glb
           sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
           echo 'CUMA_MODEL_PACKAGED=true' >> "$GITHUB_ENV"
 
