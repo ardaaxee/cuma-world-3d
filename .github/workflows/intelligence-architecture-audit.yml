@@ -1,0 +1,64 @@
+name: Probe CUMA WORLD intelligence architecture
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/intelligence-architecture-audit.yml'
+      - 'ci/intelligence_architecture_audit_marker.txt'
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_ZIP: 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+
+jobs:
+  audit-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Extract and apply current pre-release stack
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf game
+          mkdir -p game
+          unzip -q "$SOURCE_ZIP" -d game
+          python ci/apply_ci_patches.py
+      - name: Inventory architecture files
+        shell: bash
+        run: |
+          set -euxo pipefail
+          find game/scripts -maxdepth 3 -type f -name '*.gd' | sort > /tmp/script_inventory.txt
+          grep -RInE 'class_name|add_to_group|func setup|func interact|phone|inventory|map|mission|quest|network|multiplayer|authority|rpc|save|time_of_day|day_night|graphics|camera|door|audio' game/scripts > /tmp/architecture_symbols.txt || true
+      - name: Upload architecture source map
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-intelligence-architecture-audit
+          path: |
+            /tmp/script_inventory.txt
+            /tmp/architecture_symbols.txt
+            game/project.godot
+            game/scripts/game_state.gd
+            game/scripts/main.gd
+            game/scripts/player_controller.gd
+            game/scripts/mobile_controls.gd
+            game/scripts/network_manager.gd
+            game/scripts/graphics_manager.gd
+            game/scripts/day_night.gd
+            game/scripts/door.gd
+            game/scripts/ui/phone_ui.gd
+            game/scripts/intelligence/intel_system.gd
+            game/scripts/intelligence/observation_controller.gd
+            game/scripts/intelligence/mission_system.gd
+            game/scripts/intelligence/intelligence_stealth_builder.gd
+            game/scripts/stealth/awareness_system.gd
+            game/scripts/action/cinematic_action_runtime.gd
+            game/scripts/action/cinematic_action_hud.gd
+          if-no-files-found: warn
+          retention-days: 2
