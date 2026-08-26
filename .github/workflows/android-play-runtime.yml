@@ -57,6 +57,26 @@ jobs:
             echo 'CUMA_MODEL_PACKAGED=false' >> "$GITHUB_ENV"
           fi
 
+      - name: Detect optional game audio assets
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p public/assets/audio
+          packaged=()
+          for asset in city_ambience.wav footstep_a.wav footstep_b.wav; do
+            ASSET_PATH="$(unzip -Z1 "$SOURCE_ARCHIVE" | grep -E "(^|/)assets/audio/${asset}$" | head -n1 || true)"
+            if [ -n "$ASSET_PATH" ]; then
+              unzip -p "$SOURCE_ARCHIVE" "$ASSET_PATH" > "public/assets/audio/$asset"
+              test -s "public/assets/audio/$asset"
+              packaged+=("$asset")
+            fi
+          done
+          if [ "${#packaged[@]}" -gt 0 ]; then
+            (IFS=,; echo "AUDIO_ASSETS=${packaged[*]}") >> "$GITHUB_ENV"
+          else
+            echo 'AUDIO_ASSETS=not_packaged' >> "$GITHUB_ENV"
+          fi
+
       - name: Install web runtime dependencies
         run: npm install --no-audit --no-fund
 
@@ -70,6 +90,9 @@ jobs:
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
           if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
             test -s dist/assets/characters/cuma_runtime.glb
+          fi
+          if [ "${AUDIO_ASSETS:-not_packaged}" != 'not_packaged' ]; then
+            test -d dist/assets/audio
           fi
 
       - name: Create native Android project
@@ -182,6 +205,7 @@ jobs:
             echo "apk_sha256=$APK_SHA"
             echo "cuma_model_source=$MODEL_SOURCE"
             echo "cuma_model_sha256=$MODEL_SHA"
+            echo "audio_assets=${AUDIO_ASSETS:-not_packaged}"
           } > android/BUILD_INFO.txt
           cat android/BUILD_INFO.txt
 
