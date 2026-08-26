@@ -9,28 +9,27 @@ import {
   saveGraphicsPreferences,
 } from "./game/graphics";
 
-const canvas = document.querySelector<HTMLCanvasElement>("#game");
-const enter = document.querySelector<HTMLButtonElement>("#enter-world");
-const boot = document.querySelector<HTMLElement>("#boot");
-const hud = document.querySelector<HTMLElement>("#hud");
-const controls = document.querySelector<HTMLElement>("#mobile-controls");
-const buildLabel = document.querySelector<HTMLElement>("#build-label");
-const settingsOpen = document.querySelector<HTMLButtonElement>("#settings-open");
-const settingsClose = document.querySelector<HTMLButtonElement>("#settings-close");
-const settingsPanel = document.querySelector<HTMLElement>("#settings-panel");
-const tierSelect = document.querySelector<HTMLSelectElement>("#graphics-tier");
-const resolutionSelect = document.querySelector<HTMLSelectElement>("#graphics-resolution");
-const fpsSelect = document.querySelector<HTMLSelectElement>("#graphics-fps");
-const shadowsSelect = document.querySelector<HTMLSelectElement>("#graphics-shadows");
-const reducedMotion = document.querySelector<HTMLInputElement>("#reduced-motion");
-const graphicsStatus = document.querySelector<HTMLElement>("#graphics-status");
-
-if (
-  !canvas || !enter || !boot || !hud || !controls || !buildLabel || !settingsOpen || !settingsClose || !settingsPanel ||
-  !tierSelect || !resolutionSelect || !fpsSelect || !shadowsSelect || !reducedMotion || !graphicsStatus
-) {
-  throw new Error("CUMA WORLD bootstrap DOM is incomplete");
+function required<T extends Element>(selector: string): T {
+  const element = document.querySelector<T>(selector);
+  if (!element) throw new Error(`CUMA WORLD missing required element: ${selector}`);
+  return element;
 }
+
+const canvas = required<HTMLCanvasElement>("#game");
+const enter = required<HTMLButtonElement>("#enter-world");
+const boot = required<HTMLElement>("#boot");
+const hud = required<HTMLElement>("#hud");
+const controls = required<HTMLElement>("#mobile-controls");
+const buildLabel = required<HTMLElement>("#build-label");
+const settingsOpen = required<HTMLButtonElement>("#settings-open");
+const settingsClose = required<HTMLButtonElement>("#settings-close");
+const settingsPanel = required<HTMLElement>("#settings-panel");
+const tierSelect = required<HTMLSelectElement>("#graphics-tier");
+const resolutionSelect = required<HTMLSelectElement>("#graphics-resolution");
+const fpsSelect = required<HTMLSelectElement>("#graphics-fps");
+const shadowsSelect = required<HTMLSelectElement>("#graphics-shadows");
+const reducedMotion = required<HTMLInputElement>("#reduced-motion");
+const graphicsStatus = required<HTMLElement>("#graphics-status");
 
 const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
 buildLabel.textContent = `ANDROID PLAY RUNTIME · ${buildSha.toUpperCase()} · PRE-RELEASE`;
