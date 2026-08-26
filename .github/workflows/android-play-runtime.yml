@@ -7,6 +7,7 @@ on:
       - 'src/**'
       - 'public/**'
       - 'ci/measure_android_web_bundle.py'
+      - 'ci/install_high_character.py'
       - 'index.html'
       - 'package.json'
       - 'tsconfig.json'
@@ -40,7 +41,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Detect optional CUMA character asset
+      - name: Package verified CUMA character asset
         shell: bash
         run: |
           set -euxo pipefail
@@ -49,17 +50,40 @@ jobs:
           if [ -z "$CHARACTER_PATH" ]; then
             CHARACTER_PATH="$(unzip -Z1 "$SOURCE_ARCHIVE" | grep -E '(^|/)assets/characters/cuma\.glb$' | head -n1 || true)"
           fi
+
           if [ -n "$CHARACTER_PATH" ]; then
             unzip -p "$SOURCE_ARCHIVE" "$CHARACTER_PATH" > public/assets/characters/cuma_runtime.glb
-            test -s public/assets/characters/cuma_runtime.glb
-            sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
-            printf '%s\n' "$CHARACTER_PATH" > /tmp/cuma_character_source.txt
-            echo 'CUMA_MODEL_PACKAGED=true' >> "$GITHUB_ENV"
+            printf '%s\n' "archive:$CHARACTER_PATH" > /tmp/cuma_character_source.txt
+            printf '%s\n' 'archive-provided; see repository asset provenance' > public/assets/characters/CUMA_HIGH_LICENSE.txt
           else
-            printf '%s\n' 'not_packaged' > /tmp/cuma_character_source.txt
-            printf '%s\n' 'unavailable' > /tmp/cuma_runtime.glb.sha256
-            echo 'CUMA_MODEL_PACKAGED=false' >> "$GITHUB_ENV"
+            success=0
+            for attempt in 1 2 3; do
+              echo "Verified high-character install attempt $attempt/3"
+              if python3 ci/install_high_character.py; then
+                success=1
+                break
+              fi
+              sleep $((attempt * 3))
+            done
+            test "$success" -eq 1
+            test -s game/assets/characters/cuma_high.glb
+            test -s game/assets/characters/CUMA_HIGH_LICENSE.txt
+            cp game/assets/characters/cuma_high.glb public/assets/characters/cuma_runtime.glb
+            cp game/assets/characters/CUMA_HIGH_LICENSE.txt public/assets/characters/CUMA_HIGH_LICENSE.txt
+            printf '%s\n' 'pinned-cc0:kunalkushwaha/vsim@3f97faf85e46d2f9a122b0a8b8d3ccc0af598f91/packages/assets/library/suited.glb' > /tmp/cuma_character_source.txt
           fi
+
+          test -s public/assets/characters/cuma_runtime.glb
+          test -s public/assets/characters/CUMA_HIGH_LICENSE.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          data = Path('public/assets/characters/cuma_runtime.glb').read_bytes()
+          if data[:4] != b'glTF':
+              raise SystemExit('CUMA runtime character is not a GLB file')
+          print(f'CUMA_ANDROID_CHARACTER_OK bytes={len(data)}')
+          PY
+          sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
+          echo 'CUMA_MODEL_PACKAGED=true' >> "$GITHUB_ENV"
 
       - name: Detect optional game audio assets
         shell: bash
@@ -100,6 +124,8 @@ jobs:
           grep -q 'hud.css' src/main.ts
           grep -q 'useOpportunity' src/game/mission.ts
           grep -q 'camera_bypass' src/game/mission.ts
+          grep -q 'canInteract' src/game/mission.ts
+          grep -q 'InteractionPromptGuard' src/main.ts
           grep -q 'investigateTimer' src/game/npc.ts
           grep -q 'senseInterval' src/game/npc.ts
           grep -q 'private enabled = true' src/game/npc.ts
@@ -111,9 +137,8 @@ jobs:
           grep -q 'codeSplitting' vite.config.ts
           grep -q 'babylon-runtime' vite.config.ts
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
-          if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
-            test -s dist/assets/characters/cuma_runtime.glb
-          fi
+          test -s dist/assets/characters/cuma_runtime.glb
+          test -s dist/assets/characters/CUMA_HIGH_LICENSE.txt
           if [ "${AUDIO_ASSETS:-not_packaged}" != 'not_packaged' ]; then
             test -d dist/assets/audio
           fi
@@ -232,11 +257,7 @@ jobs:
           AAB_SHA="$(sha256sum "$AAB" | awk '{print $1}')"
           APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
           MODEL_SOURCE="$(cat /tmp/cuma_character_source.txt)"
-          if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
-            MODEL_SHA="$(awk '{print $1}' /tmp/cuma_runtime.glb.sha256)"
-          else
-            MODEL_SHA='unavailable'
-          fi
+          MODEL_SHA="$(awk '{print $1}' /tmp/cuma_runtime.glb.sha256)"
           {
             echo 'CUMA WORLD Android Play Runtime'
             echo "commit=$GITHUB_SHA"
@@ -250,6 +271,7 @@ jobs:
             echo "apk_sha256=$APK_SHA"
             echo "cuma_model_source=$MODEL_SOURCE"
             echo "cuma_model_sha256=$MODEL_SHA"
+            echo 'cuma_model_license=CC0/public-domain provenance file packaged'
             echo "audio_assets=${AUDIO_ASSETS:-not_packaged}"
             echo "bootstrap_js_bytes=${BOOTSTRAP_JS_BYTES:-unknown}"
             echo "largest_js_chunk_bytes=${LARGEST_JS_CHUNK_BYTES:-unknown}"
@@ -267,6 +289,7 @@ jobs:
             android/app/build/outputs/apk/debug/app-debug.apk.sha256
             android/app/build/outputs/bundle/release/app-release.aab
             android/app/build/outputs/bundle/release/app-release.aab.sha256
+            android/app/src/main/assets/public/assets/characters/CUMA_HIGH_LICENSE.txt
             android/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 7
