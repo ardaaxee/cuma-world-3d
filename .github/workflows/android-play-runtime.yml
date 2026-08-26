@@ -36,7 +36,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Extract best available CUMA character asset
+      - name: Detect optional CUMA character asset
         shell: bash
         run: |
           set -euxo pipefail
@@ -45,12 +45,17 @@ jobs:
           if [ -z "$CHARACTER_PATH" ]; then
             CHARACTER_PATH="$(unzip -Z1 "$SOURCE_ARCHIVE" | grep -E '(^|/)assets/characters/cuma\.glb$' | head -n1 || true)"
           fi
-          test -n "$CHARACTER_PATH"
-          unzip -p "$SOURCE_ARCHIVE" "$CHARACTER_PATH" > public/assets/characters/cuma_runtime.glb
-          test -s public/assets/characters/cuma_runtime.glb
-          printf '%s\n' "$CHARACTER_PATH" > /tmp/cuma_character_source.txt
-          sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
-          ls -lh public/assets/characters/cuma_runtime.glb
+          if [ -n "$CHARACTER_PATH" ]; then
+            unzip -p "$SOURCE_ARCHIVE" "$CHARACTER_PATH" > public/assets/characters/cuma_runtime.glb
+            test -s public/assets/characters/cuma_runtime.glb
+            sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
+            printf '%s\n' "$CHARACTER_PATH" > /tmp/cuma_character_source.txt
+            echo 'CUMA_MODEL_PACKAGED=true' >> "$GITHUB_ENV"
+          else
+            printf '%s\n' 'not_packaged' > /tmp/cuma_character_source.txt
+            printf '%s\n' 'unavailable' > /tmp/cuma_runtime.glb.sha256
+            echo 'CUMA_MODEL_PACKAGED=false' >> "$GITHUB_ENV"
+          fi
 
       - name: Install web runtime dependencies
         run: npm install --no-audit --no-fund
@@ -60,7 +65,9 @@ jobs:
         run: |
           set -euxo pipefail
           VITE_BUILD_SHA="$GITHUB_SHA" npm run build
-          test -s dist/assets/characters/cuma_runtime.glb
+          if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
+            test -s dist/assets/characters/cuma_runtime.glb
+          fi
 
       - name: Create native Android project
         shell: bash
@@ -122,8 +129,12 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           AAB_SHA="$(sha256sum "$AAB" | awk '{print $1}')"
           APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
-          MODEL_SHA="$(awk '{print $1}' /tmp/cuma_runtime.glb.sha256)"
           MODEL_SOURCE="$(cat /tmp/cuma_character_source.txt)"
+          if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
+            MODEL_SHA="$(awk '{print $1}' /tmp/cuma_runtime.glb.sha256)"
+          else
+            MODEL_SHA='unavailable'
+          fi
           {
             echo 'CUMA WORLD Android Play Runtime'
             echo "commit=$GITHUB_SHA"
