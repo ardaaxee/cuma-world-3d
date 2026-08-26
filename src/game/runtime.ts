@@ -15,6 +15,7 @@ import {
   UniversalCamera,
   Vector3,
 } from "@babylonjs/core";
+import { PlayerCharacter } from "./character";
 import { MobileInput } from "./input";
 import { MissionDirector } from "./mission";
 import {
@@ -34,6 +35,7 @@ export class GameRuntime {
   private readonly engine: Engine;
   private readonly scene: Scene;
   private readonly camera: UniversalCamera;
+  private readonly player: PlayerCharacter;
   private readonly input = new MobileInput();
   private readonly mission = new MissionDirector();
   private shadowGenerator: ShadowGenerator | null = null;
@@ -44,11 +46,13 @@ export class GameRuntime {
   private observedMesh: Mesh | null = null;
   private analysisSeconds = 0;
   private yaw = 0;
-  private pitch = -0.04;
+  private pitch = -0.12;
   private velocity = Vector3.Zero();
   private running = false;
   private paused = false;
   private lastRenderedAt = 0;
+  private readonly cameraDistance = 4.15;
+  private readonly shoulderOffset = 0.42;
 
   private readonly objectiveEl = document.querySelector<HTMLElement>("#objective")!;
   private readonly intelEl = document.querySelector<HTMLElement>("#intel")!;
@@ -77,17 +81,17 @@ export class GameRuntime {
     this.scene.imageProcessingConfiguration.exposure = this.activeProfile.exposure;
     this.scene.imageProcessingConfiguration.contrast = this.activeProfile.contrast;
 
-    this.camera = new UniversalCamera("player-camera", new Vector3(0, 1.72, -8), this.scene);
-    this.camera.fov = 70 * Math.PI / 180;
-    this.camera.minZ = 0.12;
+    this.camera = new UniversalCamera("player-camera", new Vector3(0.42, 2.05, -12.1), this.scene);
+    this.camera.fov = 68 * Math.PI / 180;
+    this.camera.minZ = 0.08;
     this.camera.maxZ = this.activeProfile.cameraFar;
     this.camera.inputs.clear();
-    this.camera.checkCollisions = true;
-    this.camera.applyGravity = true;
-    this.camera.ellipsoid = new Vector3(0.42, 0.86, 0.42);
-    this.camera.ellipsoidOffset = new Vector3(0, -0.78, 0);
+    this.camera.checkCollisions = false;
+    this.camera.applyGravity = false;
 
     this.buildWorld();
+    this.player = new PlayerCharacter(this.scene);
+    this.updateThirdPersonCamera(0, true);
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
@@ -157,8 +161,7 @@ export class GameRuntime {
   private update(dt: number): void {
     const frame = this.input.frame();
     this.yaw -= frame.lookX * 0.00235;
-    this.pitch = Math.max(-1.04, Math.min(0.94, this.pitch - frame.lookY * 0.00205));
-    this.camera.rotation.set(this.pitch, this.yaw, 0);
+    this.pitch = Math.max(-0.62, Math.min(0.48, this.pitch - frame.lookY * 0.00185));
 
     const forward = new Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -169,11 +172,18 @@ export class GameRuntime {
     const target = desired.scale(speed);
     const accel = strength > 0.01 ? 12.5 : 21.0;
     this.velocity = Vector3.Lerp(this.velocity, target, 1 - Math.exp(-accel * dt));
-    this.camera.cameraDirection.addInPlace(this.velocity.scale(dt));
+    this.player.move(this.velocity.scale(dt));
+
+    const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    if (horizontalSpeed > 0.08) {
+      this.player.setFacing(Math.atan2(this.velocity.x, this.velocity.z), dt);
+    }
+    this.player.update(horizontalSpeed, dt, this.graphicsPreferences.reducedMotion);
     this.running = strength > 0.86;
-    const runningFov = this.graphicsPreferences.reducedMotion ? 71.2 : 73;
-    const targetFov = (this.running ? runningFov : 70) * Math.PI / 180;
+    const runningFov = this.graphicsPreferences.reducedMotion ? 69.5 : 71.2;
+    const targetFov = (this.running ? runningFov : 68) * Math.PI / 180;
     this.camera.fov += (targetFov - this.camera.fov) * (1 - Math.exp(-5.5 * dt));
+    this.updateThirdPersonCamera(dt, false);
 
     if (frame.observePressed) {
       this.observation = !this.observation;
@@ -186,6 +196,37 @@ export class GameRuntime {
     if (this.observation) this.updateObservation(dt);
     else this.updateInteraction(frame.interactPressed);
     this.updateHud();
+  }
+
+  private updateThirdPersonCamera(dt: number, force: boolean): void {
+    const target = this.player.cameraTarget.getAbsolutePosition();
+    const cosPitch = Math.cos(this.pitch);
+    const lookDirection = new Vector3(
+      Math.sin(this.yaw) * cosPitch,
+      Math.sin(this.pitch),
+      Math.cos(this.yaw) * cosPitch,
+    ).normalize();
+    const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    const desired = target.subtract(lookDirection.scale(this.cameraDistance)).add(right.scale(this.shoulderOffset));
+    const cameraPath = desired.subtract(target);
+    const distance = cameraPath.length();
+    const direction = distance > 0.001 ? cameraPath.scale(1 / distance) : new Vector3(0, 0, -1);
+    const hit = this.scene.pickWithRay(
+      new Ray(target, direction, distance),
+      (mesh) => mesh instanceof Mesh && mesh.checkCollisions && mesh !== this.player.collider,
+    );
+
+    let resolved = desired;
+    let blocked = false;
+    if (hit?.hit && typeof hit.distance === "number") {
+      const safeDistance = Math.max(0.68, hit.distance - 0.24);
+      resolved = target.add(direction.scale(safeDistance));
+      blocked = safeDistance < distance - 0.08;
+    }
+
+    if (force || blocked || dt <= 0) this.camera.position.copyFrom(resolved);
+    else this.camera.position.copyFrom(Vector3.Lerp(this.camera.position, resolved, 1 - Math.exp(-14 * dt)));
+    this.camera.setTarget(target.add(lookDirection.scale(7)));
   }
 
   private updateObservation(dt: number): void {
@@ -218,7 +259,7 @@ export class GameRuntime {
   }
 
   private updateInteraction(interactPressed: boolean): void {
-    const ray = new Ray(this.camera.position, this.camera.getForwardRay().direction, 3.4);
+    const ray = new Ray(this.camera.position, this.camera.getForwardRay().direction, 3.8);
     const hit = this.scene.pickWithRay(ray, (mesh) => Boolean((mesh.metadata as GameMetadata | null)?.interaction));
     const mesh = hit?.hit && hit.pickedMesh instanceof Mesh ? hit.pickedMesh : null;
     if (!mesh) {
