@@ -19,6 +19,7 @@ export class GameAudio {
   async unlock(): Promise<void> {
     if (this.unlocked) return;
     this.unlocked = true;
+    if (this.masterVolume <= 0) return;
     try {
       await this.ambience.play();
     } catch {
@@ -27,8 +28,9 @@ export class GameAudio {
   }
 
   setMasterVolume(volume: number): void {
+    const wasMuted = this.masterVolume <= 0;
     this.masterVolume = Math.max(0, Math.min(1, volume));
-    this.applyVolumes(false);
+    this.applyVolumes(wasMuted && this.masterVolume > 0);
   }
 
   updateFootsteps(speed: number, dt: number): void {
@@ -36,8 +38,10 @@ export class GameAudio {
       this.footstepClock = 0;
       return;
     }
+
+    const pace = Math.max(0, Math.min(1, (speed - 0.55) / 3.6));
     const running = speed > 3.5;
-    const interval = running ? 0.31 : 0.46;
+    const interval = 0.49 - pace * 0.18;
     this.footstepClock += dt;
     if (this.footstepClock < interval) return;
     this.footstepClock %= interval;
@@ -45,11 +49,16 @@ export class GameAudio {
     const sample = this.footsteps[this.footstepIndex % this.footsteps.length];
     this.footstepIndex += 1;
     if (!sample) return;
+
+    const pitchPattern = [0.97, 1.01, 0.985, 1.025];
+    const volumePattern = [0.96, 1.02, 0.98, 1.0];
+    const pitch = pitchPattern[this.footstepIndex % pitchPattern.length] ?? 1;
+    const variation = volumePattern[this.footstepIndex % volumePattern.length] ?? 1;
     try {
       sample.pause();
       sample.currentTime = 0;
-      sample.playbackRate = 0.97 + (this.footstepIndex % 4) * 0.018;
-      sample.volume = (running ? 0.44 : 0.34) * this.masterVolume;
+      sample.playbackRate = pitch;
+      sample.volume = Math.min(1, (running ? 0.44 : 0.32 + pace * 0.06) * variation * this.masterVolume);
       void sample.play().catch(() => undefined);
     } catch {
       // Missing/unsupported audio must never break movement.
