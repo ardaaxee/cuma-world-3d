@@ -6,10 +6,14 @@ const enter = document.querySelector<HTMLButtonElement>("#enter-world");
 const boot = document.querySelector<HTMLElement>("#boot");
 const hud = document.querySelector<HTMLElement>("#hud");
 const controls = document.querySelector<HTMLElement>("#mobile-controls");
+const buildLabel = document.querySelector<HTMLElement>("#build-label");
 
-if (!canvas || !enter || !boot || !hud || !controls) {
+if (!canvas || !enter || !boot || !hud || !controls || !buildLabel) {
   throw new Error("CUMA WORLD bootstrap DOM is incomplete");
 }
+
+const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
+buildLabel.textContent = `ANDROID PLAY RUNTIME · ${buildSha.toUpperCase()} · PRE-RELEASE`;
 
 const runtime = new GameRuntime(canvas);
 runtime.start();
