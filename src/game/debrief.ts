@@ -29,10 +29,10 @@ export class MissionDebrief {
     const resultMatch = text.match(/COMPLETE\s*·\s*(GHOST|SHADOW|OPERATIVE)\s*·\s*SKOR\s+(\d+)/i);
     if (!resultMatch) return;
 
-    const rank = resultMatch[1];
-    const score = Math.max(0, Math.min(100, Number(resultMatch[2]) || 0));
-    const found = intelMatch ? Number(intelMatch[1]) || 0 : 0;
-    const total = intelMatch ? Number(intelMatch[2]) || 0 : 0;
+    const rank = resultMatch[1] ?? "OPERATIVE";
+    const score = Math.max(0, Math.min(100, Number(resultMatch[2] ?? "0") || 0));
+    const found = intelMatch ? Number(intelMatch[1] ?? "0") || 0 : 0;
+    const total = intelMatch ? Number(intelMatch[2] ?? "0") || 0 : 0;
     const signature = `${rank}:${score}:${found}:${total}`;
     if (this.shownForResult === signature) return;
     this.shownForResult = signature;
