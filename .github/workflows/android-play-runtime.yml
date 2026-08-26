@@ -6,6 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'public/**'
+      - 'ci/measure_android_web_bundle.py'
       - 'index.html'
       - 'package.json'
       - 'tsconfig.json'
@@ -116,6 +117,7 @@ jobs:
           if [ "${AUDIO_ASSETS:-not_packaged}" != 'not_packaged' ]; then
             test -d dist/assets/audio
           fi
+          python3 ci/measure_android_web_bundle.py
 
       - name: Create native Android project
         shell: bash
@@ -249,6 +251,10 @@ jobs:
             echo "cuma_model_source=$MODEL_SOURCE"
             echo "cuma_model_sha256=$MODEL_SHA"
             echo "audio_assets=${AUDIO_ASSETS:-not_packaged}"
+            echo "bootstrap_js_bytes=${BOOTSTRAP_JS_BYTES:-unknown}"
+            echo "largest_js_chunk_bytes=${LARGEST_JS_CHUNK_BYTES:-unknown}"
+            echo "total_js_bytes=${TOTAL_JS_BYTES:-unknown}"
+            echo "total_web_bytes=${TOTAL_WEB_BYTES:-unknown}"
           } > android/BUILD_INFO.txt
           cat android/BUILD_INFO.txt
 
