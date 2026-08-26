@@ -1,0 +1,95 @@
+name: Build CUMA WORLD Android Play Runtime
+
+on:
+  push:
+    branches: [ chatgpt/android-play-runtime ]
+    paths:
+      - 'src/**'
+      - 'index.html'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'vite.config.ts'
+      - 'capacitor.config.ts'
+      - '.github/workflows/android-play-runtime.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android-aab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install web runtime dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck and build game runtime
+        run: npm run build
+
+      - name: Create native Android project
+        run: |
+          npx cap add android
+          npx cap sync android
+          grep -F 'targetSdkVersion = 36' android/variables.gradle
+
+      - name: Install Android toolchain
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 16 SDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
+
+      - name: Build release Android App Bundle
+        shell: bash
+        run: |
+          chmod +x android/gradlew
+          cd android
+          ./gradlew bundleRelease --stacktrace
+          test -s app/build/outputs/bundle/release/app-release.aab
+
+      - name: Optionally sign upload bundle
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          AAB='android/app/build/outputs/bundle/release/app-release.aab'
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_ALIAS" ]; then
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/cuma-upload.jks
+            jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
+              -keystore /tmp/cuma-upload.jks \
+              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+              -keypass "$ANDROID_KEY_PASSWORD" \
+              "$AAB" "$ANDROID_KEY_ALIAS"
+            jarsigner -verify "$AAB"
+            echo 'PLAY_UPLOAD_SIGNED=true' >> "$GITHUB_ENV"
+          else
+            echo 'PLAY_UPLOAD_SIGNED=false' >> "$GITHUB_ENV"
+          fi
+          sha256sum "$AAB" > "$AAB.sha256"
+
+      - name: Upload Android App Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: CUMA-WORLD-Android-Play-AAB
+          path: |
+            android/app/build/outputs/bundle/release/app-release.aab
+            android/app/build/outputs/bundle/release/app-release.aab.sha256
+          if-no-files-found: error
+          retention-days: 7

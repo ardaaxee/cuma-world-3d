@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+    <meta name="theme-color" content="#090b0f" />
+    <title>CUMA WORLD</title>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+
+    <div id="boot" class="boot-screen">
+      <div class="brand-kicker">CUMA WORLD</div>
+      <h1>YOUR WORLD.<br />YOUR STORY.</h1>
+      <button id="enter-world" class="primary">DÜNYAYA GİR</button>
+      <div class="build-label">ANDROID PLAY RUNTIME · PRE-RELEASE</div>
+    </div>
+
+    <div id="hud" class="hud hidden">
+      <section class="mission-card">
+        <div class="eyebrow">FIELD OPS</div>
+        <div id="mission-title" class="mission-title">SESSİZ TESLİMAT</div>
+        <div id="objective" class="objective">Brifing hazırlanıyor</div>
+        <div id="intel" class="intel">INTEL 0/4</div>
+      </section>
+      <div id="observation-readout" class="observation-readout hidden">RECON LENS</div>
+      <div id="interaction" class="interaction hidden"></div>
+    </div>
+
+    <div id="mobile-controls" class="mobile-controls hidden">
+      <div id="joystick" class="joystick"><div id="joystick-knob" class="joystick-knob"></div></div>
+      <div id="look-zone" class="look-zone"></div>
+      <div class="actions">
+        <button id="observe" class="action">GÖZLEM</button>
+        <button id="interact" class="action action-primary">ETKİLEŞ</button>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

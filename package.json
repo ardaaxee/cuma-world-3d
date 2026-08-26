@@ -1,0 +1,25 @@
+{
+  "name": "cuma-world-android-runtime",
+  "version": "10.0.0-pre.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite --host 0.0.0.0 --port 4173",
+    "android:add": "cap add android",
+    "android:sync": "npm run build && cap sync android",
+    "android:aab": "npm run android:sync && cd android && ./gradlew bundleRelease"
+  },
+  "dependencies": {
+    "@babylonjs/core": "9.22.2",
+    "@babylonjs/loaders": "9.22.2",
+    "@capacitor/android": "8.5.0",
+    "@capacitor/core": "8.5.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.0",
+    "typescript": "5.9.3",
+    "vite": "8.2.2"
+  }
+}
