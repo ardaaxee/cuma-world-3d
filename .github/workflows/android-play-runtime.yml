@@ -90,7 +90,8 @@ jobs:
           test -s dist/index.html
           grep -q 'graphics-tier' index.html
           grep -q 'runtime11' src/main.ts
-          grep -q 'camera-bypass' src/game/mission.ts
+          grep -q 'useOpportunity' src/game/mission.ts
+          grep -q 'camera_bypass' src/game/mission.ts
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
           if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
             test -s dist/assets/characters/cuma_runtime.glb
