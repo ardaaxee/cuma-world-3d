@@ -5,6 +5,7 @@ on:
     branches: [ chatgpt/android-play-runtime ]
     paths:
       - 'src/**'
+      - 'public/**'
       - 'index.html'
       - 'package.json'
       - 'tsconfig.json'
@@ -88,9 +89,13 @@ jobs:
           set -euxo pipefail
           VITE_BUILD_SHA="$GITHUB_SHA" VITE_CUMA_MODEL_PACKAGED="${CUMA_MODEL_PACKAGED:-false}" npm run build
           test -s dist/index.html
+          test -s public/privacy.html
+          test -s dist/privacy.html
           grep -q '"version": "11.0.0-pre.1"' package.json
           grep -q 'graphics-tier' index.html
-          grep -q 'runtime11' src/main.ts
+          grep -q 'privacy.html' index.html
+          grep -Fq 'await import("./game/runtime11")' src/main.ts
+          ! grep -Eq '^import[[:space:]].*runtime11' src/main.ts
           grep -q 'hud.css' src/main.ts
           grep -q 'useOpportunity' src/game/mission.ts
           grep -q 'camera_bypass' src/game/mission.ts
