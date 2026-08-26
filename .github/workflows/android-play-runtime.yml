@@ -65,6 +65,9 @@ jobs:
         run: |
           set -euxo pipefail
           VITE_BUILD_SHA="$GITHUB_SHA" npm run build
+          test -s dist/index.html
+          grep -q 'graphics-tier' index.html
+          grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
           if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
             test -s dist/assets/characters/cuma_runtime.glb
           fi
@@ -76,6 +79,22 @@ jobs:
           npx cap add android
           npx cap sync android
           grep -F 'targetSdkVersion = 36' android/variables.gradle
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          path = Path('android/app/src/main/AndroidManifest.xml')
+          text = path.read_text(encoding='utf-8')
+          if 'android:screenOrientation=' in text:
+              text = re.sub(r'android:screenOrientation="[^"]+"', 'android:screenOrientation="sensorLandscape"', text, count=1)
+          else:
+              anchor = 'android:exported="true"'
+              if anchor not in text:
+                  raise SystemExit('Android activity export anchor not found')
+              text = text.replace(anchor, anchor + '\n            android:screenOrientation="sensorLandscape"', 1)
+          path.write_text(text, encoding='utf-8')
+          PY
+          grep -F 'android:screenOrientation="sensorLandscape"' android/app/src/main/AndroidManifest.xml
 
       - name: Install Android toolchain
         uses: android-actions/setup-android@v3
@@ -139,6 +158,7 @@ jobs:
             echo 'CUMA WORLD Android Play Runtime'
             echo "commit=$GITHUB_SHA"
             echo 'targetSdk=36'
+            echo 'orientation=sensorLandscape'
             echo "play_upload_signed=${PLAY_UPLOAD_SIGNED:-false}"
             echo "aab_sha256=$AAB_SHA"
             echo "apk_sha256=$APK_SHA"
