@@ -95,9 +95,15 @@ jobs:
           grep -q 'useOpportunity' src/game/mission.ts
           grep -q 'camera_bypass' src/game/mission.ts
           grep -q 'investigateTimer' src/game/npc.ts
+          grep -q 'senseInterval' src/game/npc.ts
+          grep -q 'private enabled = true' src/game/npc.ts
           grep -q 'wasMuted' src/game/audio.ts
+          grep -q 'UiAudioFeedback' src/main.ts
+          grep -q 'ui-audio-feedback' src/main.ts
           grep -q 'freezeWorldMatrix' src/game/visuals.ts
           grep -q 'VITE_CUMA_MODEL_PACKAGED' src/game/character.ts
+          grep -q 'codeSplitting' vite.config.ts
+          grep -q 'babylon-runtime' vite.config.ts
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
           if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
             test -s dist/assets/characters/cuma_runtime.glb
