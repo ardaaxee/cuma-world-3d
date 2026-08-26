@@ -1,5 +1,6 @@
 import "./styles.css";
 import "./briefing.css";
+import "./hud.css";
 import { GameRuntime } from "./game/runtime11";
 import {
   type FpsSetting,
@@ -49,6 +50,32 @@ buildLabel.textContent = `ANDROID PLAY RUNTIME 11 Â· ${buildSha.toUpperCase()} Â
 const runtime = new GameRuntime(canvas);
 runtime.start();
 
+let activeHudMode: HudMode = "COMPACT";
+let hudQuietTimer: number | null = null;
+
+function clearHudQuietTimer(): void {
+  if (hudQuietTimer !== null) {
+    window.clearTimeout(hudQuietTimer);
+    hudQuietTimer = null;
+  }
+}
+
+function wakeHud(): void {
+  clearHudQuietTimer();
+  document.body.classList.remove("hud-quiet");
+}
+
+function scheduleHudQuiet(): void {
+  clearHudQuietTimer();
+  if (activeHudMode !== "COMPACT" || !boot.classList.contains("hidden")) return;
+  hudQuietTimer = window.setTimeout(() => {
+    if (activeHudMode === "COMPACT" && settingsPanel.classList.contains("hidden")) {
+      document.body.classList.add("hud-quiet");
+    }
+    hudQuietTimer = null;
+  }, 4200);
+}
+
 function syncGraphicsControls(preferences: GraphicsPreferences): void {
   tierSelect.value = preferences.tier;
   fpsSelect.value = String(preferences.fps);
@@ -93,10 +120,14 @@ function applyGameplayPreferences(): void {
   saveGameplayPreferences(preferences);
   runtime.setLookSensitivity(preferences.lookSensitivity);
   runtime.setAudioVolume(preferences.audioVolume);
-  document.body.classList.toggle("hud-compact", preferences.hudMode === "COMPACT");
+  activeHudMode = preferences.hudMode;
+  document.body.classList.toggle("hud-compact", activeHudMode === "COMPACT");
+  wakeHud();
+  scheduleHudQuiet();
 }
 
 function openSettings(): void {
+  wakeHud();
   settingsPanel.classList.remove("hidden");
   document.body.classList.add("settings-open");
   runtime.setPaused(true);
@@ -106,6 +137,7 @@ function closeSettings(): void {
   settingsPanel.classList.add("hidden");
   document.body.classList.remove("settings-open");
   runtime.setPaused(false);
+  scheduleHudQuiet();
 }
 
 syncGraphicsControls(runtime.getGraphicsPreferences());
@@ -131,5 +163,7 @@ enter.addEventListener("click", () => {
   boot.classList.add("hidden");
   hud.classList.remove("hidden");
   controls.classList.remove("hidden");
+  wakeHud();
+  scheduleHudQuiet();
   void runtime.unlockAudio();
 });
