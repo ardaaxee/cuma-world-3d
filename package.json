@@ -1,6 +1,6 @@
 {
   "name": "cuma-world-android-runtime",
-  "version": "10.0.0-pre.1",
+  "version": "11.0.0-pre.1",
   "private": true,
   "type": "module",
   "scripts": {
