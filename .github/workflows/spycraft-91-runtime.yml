@@ -1,0 +1,84 @@
+name: Verify CUMA WORLD Spycraft 9.1
+
+on:
+  push:
+    branches: [ chatgpt/cinematic-main-menu ]
+    paths:
+      - '.github/workflows/spycraft-91-runtime.yml'
+      - 'ci/apply_spycraft_gameplay_91.py'
+      - 'ci/spycraft_gameplay_91_contract.py'
+      - 'ci/overlays/91/**'
+      - 'ci/apply_ci_patches.py'
+
+permissions:
+  contents: read
+
+env:
+  GODOT_VERSION: '4.7.2'
+  GODOT_TAG: '4.7.2-stable'
+
+jobs:
+  verify-spycraft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build current production source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+          rm -rf game
+          mkdir -p game
+          unzip -q CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip -d game
+          python ci/apply_ci_patches.py
+          python ci/spycraft_gameplay_91_contract.py
+          python game/tests/parser_compat_21.py
+
+      - name: Install Godot
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/godot"
+          GODOT_ASSET="Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip"
+          MAIN_BASE="https://github.com/godotengine/godot/releases/download/${GODOT_TAG}"
+          BUILDS_BASE="https://github.com/godotengine/godot-builds/releases/download/${GODOT_TAG}"
+          curl -fL --retry 3 --retry-delay 2 "$MAIN_BASE/$GODOT_ASSET" -o /tmp/godot.zip \
+            || curl -fL --retry 3 --retry-delay 2 "$BUILDS_BASE/$GODOT_ASSET" -o /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d "$HOME/godot"
+          GODOT_BIN="$HOME/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64"
+          chmod +x "$GODOT_BIN"
+          echo "GODOT_BIN=$GODOT_BIN" >> "$GITHUB_ENV"
+          "$GODOT_BIN" --version
+
+      - name: Godot parser check
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          "$GODOT_BIN" --headless --path . --editor --quit --verbose 2>&1 | tee /tmp/spy91-import.log
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/spy91-import.log; then
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR|ERROR:.*(parse|script)' /tmp/spy91-import.log || true
+            exit 1
+          fi
+
+      - name: Spycraft 9.1 runtime probe
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          set +e
+          "$GODOT_BIN" --headless --path . --script res://scripts/ci/spycraft_91_runtime_probe.gd 2>&1 | tee /tmp/spycraft91-probe.log
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          test "$GODOT_EXIT" -eq 0
+          grep -F 'SPYCRAFT91_RUNTIME_PROBE: PASS' /tmp/spycraft91-probe.log
+          if grep -Eiq 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/spycraft91-probe.log; then
+            grep -Ein 'SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/spycraft91-probe.log || true
+            exit 1
+          fi
