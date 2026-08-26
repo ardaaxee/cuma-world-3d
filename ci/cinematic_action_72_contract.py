@@ -21,8 +21,8 @@ CHECKS = {
         '"FIRSAT"',
         'func _show_mission_intro()',
         '"CUMA WORLD · FIELD ASSIGNMENT"',
-        '"FIELD DEBRIEF 7.2"',
-        '"SAHA İMZASI"',
+        'CUMA WORLD · FIELD DEBRIEF 7.2',
+        'SAHA İMZASI ·',
         'func _field_signature(',
     ],
     "scripts/intelligence/intelligence_stealth_builder.gd": [
