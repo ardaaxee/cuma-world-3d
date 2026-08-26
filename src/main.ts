@@ -1,6 +1,8 @@
 import "./styles.css";
 import "./briefing.css";
 import "./hud.css";
+import "./debrief.css";
+import { MissionDebrief } from "./game/debrief";
 import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   type FpsSetting,
@@ -57,15 +59,31 @@ const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
 const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
 const intelStatus = required<HTMLElement>("#intel");
 const awarenessStatus = required<HTMLElement>("#awareness");
+const debriefOverlay = required<HTMLElement>("#mission-debrief");
+const debriefRank = required<HTMLElement>("#debrief-rank");
+const debriefScore = required<HTMLElement>("#debrief-score");
+const debriefIntel = required<HTMLElement>("#debrief-intel");
+const debriefClose = required<HTMLButtonElement>("#debrief-close");
 
 const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
 buildLabel.textContent = `ANDROID PLAY RUNTIME 11 · ${buildSha.toUpperCase()} · PRE-RELEASE`;
 
-const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
 let runtime: RuntimeApi | null = null;
 let runtimeStarting = false;
 let activeHudMode: HudMode = "COMPACT";
 let hudQuietTimer: number | null = null;
+
+const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
+new MissionDebrief(
+  intelStatus,
+  debriefOverlay,
+  debriefRank,
+  debriefScore,
+  debriefIntel,
+  debriefClose,
+  () => runtime?.setPaused(true),
+  () => runtime?.setPaused(false),
+);
 
 function clearHudQuietTimer(): void {
   if (hudQuietTimer !== null) {
