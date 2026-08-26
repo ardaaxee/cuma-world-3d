@@ -38,6 +38,7 @@ jobs:
           test -f game/project.godot
           python ci/apply_ci_patches.py
           python ci/cinematic_menu_contract.py
+          python ci/intelligence_completion_73_contract.py
 
       - name: Run Python regression suite
         working-directory: game
@@ -131,6 +132,22 @@ jobs:
             exit 1
           fi
 
+      - name: Intelligence 7.3 gameplay runtime probe
+        working-directory: game
+        shell: bash
+        run: |
+          set -euxo pipefail
+          set +e
+          "$GODOT_BIN" --headless --path . --script res://scripts/ci/intelligence_73_runtime_probe.gd 2>&1 | tee /tmp/intelligence73-probe.log
+          GODOT_EXIT=${PIPESTATUS[0]}
+          set -e
+          test "$GODOT_EXIT" -eq 0
+          grep -F 'INTEL73_RUNTIME_PROBE: PASS' /tmp/intelligence73-probe.log
+          if grep -Eiq 'INTEL73_PROBE_FAIL|SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/intelligence73-probe.log; then
+            grep -Ein 'INTEL73_PROBE_FAIL|SCRIPT ERROR|Parse Error|Failed to load script|Invalid call|Invalid get index|Invalid set index|Nonexistent function|Attempt to call|Cannot call method|Cannot get class|Cannot set property' /tmp/intelligence73-probe.log || true
+            exit 1
+          fi
+
       - name: Godot runtime menu smoke
         working-directory: game
         shell: bash
@@ -166,5 +183,6 @@ jobs:
           path: |
             game/build/CUMA_WORLD_3D-menu-debug-arm64.apk
             game/build/CUMA_WORLD_3D-menu-debug-arm64.apk.sha256
+            /tmp/intelligence73-probe.log
           if-no-files-found: error
           retention-days: 7
