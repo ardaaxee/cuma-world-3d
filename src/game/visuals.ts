@@ -8,6 +8,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import type { ResolvedGraphicsProfile } from "./graphics";
+import { applyProceduralSurfaceDetails } from "./surface-detail";
 
 export class VisualPolish {
   private readonly mediumDetails: Mesh[] = [];
@@ -17,6 +18,7 @@ export class VisualPolish {
   constructor(private readonly scene: Scene, private readonly addShadowCaster: (mesh: Mesh) => void) {
     this.buildMarketDetails();
     this.buildStreetDetails();
+    applyProceduralSurfaceDetails(this.scene);
   }
 
   applyProfile(profile: ResolvedGraphicsProfile): void {
