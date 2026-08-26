@@ -23,6 +23,7 @@
         <div id="objective" class="objective">Brifing hazırlanıyor</div>
         <div id="intel" class="intel">INTEL 0/4</div>
       </section>
+      <button id="settings-open" class="hud-icon" aria-label="Ayarları aç">⚙</button>
       <div class="focus-reticle" aria-hidden="true"></div>
       <div id="observation-readout" class="observation-readout hidden">RECON LENS</div>
       <div id="interaction" class="interaction hidden"></div>
@@ -36,6 +37,68 @@
         <button id="interact" class="action action-primary">ETKİLEŞ</button>
       </div>
     </div>
+
+    <aside id="settings-panel" class="settings-panel hidden" aria-label="Oyun ayarları">
+      <div class="settings-header">
+        <div>
+          <div class="eyebrow">CUMA WORLD</div>
+          <h2>AYARLAR</h2>
+        </div>
+        <button id="settings-close" class="settings-close" aria-label="Ayarları kapat">×</button>
+      </div>
+
+      <div class="settings-section-title">GRAFİK</div>
+      <label class="setting-row">
+        <span><strong>Kalite</strong><small>Performans ve görüntü bütçesi</small></span>
+        <select id="graphics-tier">
+          <option value="AUTO">AUTO</option>
+          <option value="LOW">LOW</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HIGH">HIGH</option>
+          <option value="ULTRA">ULTRA</option>
+        </select>
+      </label>
+      <label class="setting-row">
+        <span><strong>Çözünürlük</strong><small>3D render ölçeği</small></span>
+        <select id="graphics-resolution">
+          <option value="AUTO">AUTO</option>
+          <option value="0.7">%70</option>
+          <option value="0.85">%85</option>
+          <option value="1">%100</option>
+        </select>
+      </label>
+      <label class="setting-row">
+        <span><strong>FPS hedefi</strong><small>Pil ve akıcılık dengesi</small></span>
+        <select id="graphics-fps">
+          <option value="AUTO">AUTO</option>
+          <option value="30">30 FPS</option>
+          <option value="45">45 FPS</option>
+          <option value="60">60 FPS</option>
+        </select>
+      </label>
+      <label class="setting-row">
+        <span><strong>Gölgeler</strong><small>Mobil GPU maliyeti yüksek olabilir</small></span>
+        <select id="graphics-shadows">
+          <option value="AUTO">AUTO</option>
+          <option value="ON">AÇIK</option>
+          <option value="OFF">KAPALI</option>
+        </select>
+      </label>
+
+      <div class="settings-section-title">ERİŞİLEBİLİRLİK</div>
+      <label class="setting-row toggle-row">
+        <span><strong>Reduced Motion</strong><small>Kamera hareketlerini azaltır</small></span>
+        <input id="reduced-motion" type="checkbox" />
+      </label>
+
+      <div class="settings-section-title">EKRAN</div>
+      <div class="setting-row static-row">
+        <span><strong>Android yönü</strong><small>Telefonu iki yatay yönde çevirebilirsin</small></span>
+        <b>YATAY</b>
+      </div>
+
+      <div id="graphics-status" class="graphics-status">Profil hazırlanıyor…</div>
+    </aside>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
