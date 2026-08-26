@@ -1,4 +1,4 @@
-name: Probe CUMA WORLD intelligence architecture
+name: Probe CUMA WORLD AAA 9.0 architecture
 
 on:
   push:
@@ -16,13 +16,13 @@ env:
 jobs:
   audit-source:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Extract and apply current pre-release stack
+      - name: Extract current production source
         shell: bash
         run: |
           set -euxo pipefail
@@ -30,43 +30,59 @@ jobs:
           mkdir -p game
           unzip -q "$SOURCE_ZIP" -d game
           python ci/apply_ci_patches.py
-      - name: Inventory architecture files
+      - name: Build AAA 9.0 audit inventory
         shell: bash
         run: |
           set -euxo pipefail
-          find game/scripts -maxdepth 3 -type f -name '*.gd' | sort > /tmp/script_inventory.txt
-          grep -RInE 'class_name|add_to_group|func setup|func interact|phone|inventory|map|mission|quest|network|multiplayer|authority|rpc|save|time_of_day|day_night|graphics|camera|door|audio' game/scripts > /tmp/architecture_symbols.txt || true
-      - name: Upload architecture source map
+          find game/scripts -type f -name '*.gd' | sort > /tmp/script_inventory.txt
+          find game -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.glb' -o -iname '*.gltf' -o -iname '*.wav' -o -iname '*.ogg' -o -iname '*.mp3' \) -printf '%s %p\n' | sort -nr > /tmp/asset_sizes.txt
+          grep -RInE '^func _process|^func _physics_process|^func _unhandled_input|^func _input|use_frame|process_mode' game/scripts > /tmp/frame_loop_symbols.txt || true
+          grep -RInE 'CharacterBody3D|SpringArm3D|Camera3D|move_and_slide|velocity|virtual_joystick|look_pad|AnimationPlayer|AnimationTree|Skeleton3D|material|roughness|normal|WorldEnvironment|Environment|DirectionalLight3D|OmniLight3D|shadow|fog|audio|multiplayer|rpc|save|inventory|mission|vehicle|weather|LOD|visibility_range' game/scripts > /tmp/aaa_symbols.txt || true
+          printf 'gdscript_files=' > /tmp/audit_metrics.txt
+          find game/scripts -type f -name '*.gd' | wc -l >> /tmp/audit_metrics.txt
+          printf 'script_bytes=' >> /tmp/audit_metrics.txt
+          find game/scripts -type f -name '*.gd' -printf '%s\n' | awk '{s+=$1} END{print s+0}' >> /tmp/audit_metrics.txt
+          printf 'asset_files=' >> /tmp/audit_metrics.txt
+          find game -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' -o -iname '*.glb' -o -iname '*.gltf' -o -iname '*.wav' -o -iname '*.ogg' -o -iname '*.mp3' \) | wc -l >> /tmp/audit_metrics.txt
+          printf 'asset_bytes=' >> /tmp/audit_metrics.txt
+          awk '{s+=$1} END{print s+0}' /tmp/asset_sizes.txt >> /tmp/audit_metrics.txt
+      - name: Upload AAA source map
         uses: actions/upload-artifact@v4
         with:
-          name: CUMA-WORLD-intelligence-architecture-audit
+          name: CUMA-WORLD-AAA-9-source-audit
           path: |
             /tmp/script_inventory.txt
-            /tmp/architecture_symbols.txt
+            /tmp/asset_sizes.txt
+            /tmp/frame_loop_symbols.txt
+            /tmp/aaa_symbols.txt
+            /tmp/audit_metrics.txt
             game/project.godot
-            game/scripts/game_state.gd
             game/scripts/main.gd
             game/scripts/player_controller.gd
             game/scripts/mobile_controls.gd
-            game/scripts/network_manager.gd
+            game/scripts/virtual_joystick.gd
+            game/scripts/look_pad.gd
+            game/scripts/imported_character_bridge.gd
+            game/scripts/character/procedural_humanoid.gd
             game/scripts/graphics_manager.gd
             game/scripts/day_night.gd
+            game/scripts/game_state.gd
             game/scripts/door.gd
+            game/scripts/light_switch.gd
+            game/scripts/seat.gd
+            game/scripts/pickup.gd
+            game/scripts/network_manager.gd
+            game/scripts/together/remote_avatar.gd
+            game/scripts/world/production_home_builder.gd
+            game/scripts/world/ultra_home_builder.gd
+            game/scripts/world/production_city_polish.gd
+            game/scripts/world/weather_manager.gd
+            game/scripts/city/dynamic_city_builder.gd
+            game/scripts/city/public_transport_vehicle.gd
+            game/scripts/vehicles/player_vehicle.gd
+            game/scripts/ui/cinematic_main_menu.gd
             game/scripts/ui/phone_ui.gd
-            game/scripts/ui/social_interaction_ui.gd
-            game/scripts/intelligence/intel_system.gd
-            game/scripts/intelligence/intel_target.gd
             game/scripts/intelligence/observation_controller.gd
-            game/scripts/intelligence/mission_system.gd
-            game/scripts/intelligence/mission_interactable.gd
-            game/scripts/intelligence/intelligence_stealth_builder.gd
             game/scripts/stealth/awareness_system.gd
-            game/scripts/crime/security_camera.gd
-            game/scripts/social/npc_intelligence_director.gd
-            game/scripts/social/npc_interaction_proxy.gd
-            game/scripts/world/npc_walker.gd
-            game/scripts/navigation/physical_navigation_world.gd
-            game/scripts/action/cinematic_action_runtime.gd
-            game/scripts/action/cinematic_action_hud.gd
           if-no-files-found: warn
           retention-days: 2
