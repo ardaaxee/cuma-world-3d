@@ -17,6 +17,12 @@ import {
 } from "@babylonjs/core";
 import { MobileInput } from "./input";
 import { MissionDirector } from "./mission";
+import {
+  type GraphicsPreferences,
+  type ResolvedGraphicsProfile,
+  loadGraphicsPreferences,
+  resolveGraphicsProfile,
+} from "./graphics";
 
 type GameMetadata = {
   intelId?: string;
@@ -30,6 +36,10 @@ export class GameRuntime {
   private readonly camera: UniversalCamera;
   private readonly input = new MobileInput();
   private readonly mission = new MissionDirector();
+  private shadowGenerator: ShadowGenerator | null = null;
+  private readonly shadowCasters: Mesh[] = [];
+  private graphicsPreferences = loadGraphicsPreferences();
+  private activeProfile = resolveGraphicsProfile(this.graphicsPreferences);
   private observation = false;
   private observedMesh: Mesh | null = null;
   private analysisSeconds = 0;
@@ -37,6 +47,8 @@ export class GameRuntime {
   private pitch = -0.04;
   private velocity = Vector3.Zero();
   private running = false;
+  private paused = false;
+  private lastRenderedAt = 0;
 
   private readonly objectiveEl = document.querySelector<HTMLElement>("#objective")!;
   private readonly intelEl = document.querySelector<HTMLElement>("#intel")!;
@@ -51,8 +63,7 @@ export class GameRuntime {
       adaptToDeviceRatio: false,
       powerPreference: "high-performance",
     });
-    const mobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
-    this.engine.setHardwareScalingLevel(mobile ? 1.28 : Math.max(1, window.devicePixelRatio / 1.5));
+    this.engine.setHardwareScalingLevel(1 / this.activeProfile.renderScale);
 
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.36, 0.45, 0.54, 1);
@@ -61,15 +72,15 @@ export class GameRuntime {
     this.scene.fogMode = Scene.FOGMODE_LINEAR;
     this.scene.fogColor = new Color3(0.36, 0.43, 0.5);
     this.scene.fogStart = 34;
-    this.scene.fogEnd = 105;
+    this.scene.fogEnd = this.activeProfile.fogEnd;
     this.scene.imageProcessingConfiguration.toneMappingEnabled = true;
-    this.scene.imageProcessingConfiguration.exposure = 1.06;
-    this.scene.imageProcessingConfiguration.contrast = 1.08;
+    this.scene.imageProcessingConfiguration.exposure = this.activeProfile.exposure;
+    this.scene.imageProcessingConfiguration.contrast = this.activeProfile.contrast;
 
     this.camera = new UniversalCamera("player-camera", new Vector3(0, 1.72, -8), this.scene);
     this.camera.fov = 70 * Math.PI / 180;
     this.camera.minZ = 0.12;
-    this.camera.maxZ = 150;
+    this.camera.maxZ = this.activeProfile.cameraFar;
     this.camera.inputs.clear();
     this.camera.checkCollisions = true;
     this.camera.applyGravity = true;
@@ -77,6 +88,7 @@ export class GameRuntime {
     this.camera.ellipsoidOffset = new Vector3(0, -0.78, 0);
 
     this.buildWorld();
+    this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
   }
@@ -85,12 +97,61 @@ export class GameRuntime {
     let last = performance.now();
     this.engine.runRenderLoop(() => {
       const now = performance.now();
+      const frameBudget = 1000 / this.activeProfile.targetFps;
+      if (this.lastRenderedAt > 0 && now - this.lastRenderedAt < frameBudget - 1.5) return;
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
-      this.update(dt);
+      this.lastRenderedAt = now;
+      if (!this.paused) this.update(dt);
       this.scene.render();
     });
     window.addEventListener("resize", () => this.engine.resize());
+    window.addEventListener("orientationchange", () => window.setTimeout(() => this.engine.resize(), 120));
+  }
+
+  setPaused(paused: boolean): void {
+    this.paused = paused;
+    if (paused) {
+      this.interactionEl.classList.add("hidden");
+      this.observationEl.classList.add("hidden");
+    }
+  }
+
+  getGraphicsPreferences(): GraphicsPreferences {
+    return { ...this.graphicsPreferences };
+  }
+
+  getGraphicsProfile(): ResolvedGraphicsProfile {
+    return { ...this.activeProfile };
+  }
+
+  applyGraphicsPreferences(preferences: GraphicsPreferences): ResolvedGraphicsProfile {
+    this.graphicsPreferences = { ...preferences };
+    this.activeProfile = resolveGraphicsProfile(this.graphicsPreferences);
+    const profile = this.activeProfile;
+
+    this.engine.setHardwareScalingLevel(1 / profile.renderScale);
+    this.scene.fogEnd = profile.fogEnd;
+    this.scene.imageProcessingConfiguration.exposure = profile.exposure;
+    this.scene.imageProcessingConfiguration.contrast = profile.contrast;
+    this.camera.maxZ = profile.cameraFar;
+
+    if (this.shadowGenerator) {
+      this.shadowGenerator.usePercentageCloserFiltering = profile.shadowsEnabled && profile.softShadows;
+      this.shadowGenerator.usePoissonSampling = profile.shadowsEnabled && !profile.softShadows;
+      this.shadowGenerator.bias = profile.softShadows ? 0.0007 : 0.0012;
+      this.shadowGenerator.normalBias = profile.softShadows ? 0.025 : 0.04;
+      const map = this.shadowGenerator.getShadowMap();
+      if (map) map.renderList = profile.shadowsEnabled ? [...this.shadowCasters] : [];
+    }
+
+    for (const mesh of this.scene.meshes) {
+      if (mesh instanceof Mesh && mesh.checkCollisions) mesh.receiveShadows = profile.shadowsEnabled;
+    }
+
+    document.body.classList.toggle("reduced-motion", preferences.reducedMotion);
+    this.engine.resize();
+    return { ...profile };
   }
 
   private update(dt: number): void {
@@ -110,7 +171,8 @@ export class GameRuntime {
     this.velocity = Vector3.Lerp(this.velocity, target, 1 - Math.exp(-accel * dt));
     this.camera.cameraDirection.addInPlace(this.velocity.scale(dt));
     this.running = strength > 0.86;
-    const targetFov = (this.running ? 73 : 70) * Math.PI / 180;
+    const runningFov = this.graphicsPreferences.reducedMotion ? 71.2 : 73;
+    const targetFov = (this.running ? runningFov : 70) * Math.PI / 180;
     this.camera.fov += (targetFov - this.camera.fov) * (1 - Math.exp(-5.5 * dt));
 
     if (frame.observePressed) {
@@ -143,15 +205,15 @@ export class GameRuntime {
     }
     const meta = mesh.metadata as GameMetadata;
     if (this.mission.hasIntel(meta.intelId ?? "")) {
-      this.observationEl.textContent = `IDENTIFIED · ${meta.label ?? "INTEL"}`;
+      this.observationEl.textContent = `TANIMLANDI · ${meta.label ?? "INTEL"}`;
       return;
     }
     this.analysisSeconds += dt;
     const progress = Math.min(100, Math.round((this.analysisSeconds / 0.7) * 100));
-    this.observationEl.textContent = `ANALYZING ${progress}% · ${meta.label ?? "INTEL"}`;
+    this.observationEl.textContent = `ANALİZ ${progress}% · ${meta.label ?? "INTEL"}`;
     if (this.analysisSeconds >= 0.7 && meta.intelId) {
       this.mission.discoverIntel(meta.intelId);
-      this.observationEl.textContent = `IDENTIFIED · ${meta.label ?? "INTEL"}`;
+      this.observationEl.textContent = `TANIMLANDI · ${meta.label ?? "INTEL"}`;
     }
   }
 
@@ -193,8 +255,7 @@ export class GameRuntime {
     sun.position = new Vector3(22, 31, -20);
     sun.intensity = 2.55;
     sun.diffuse = new Color3(1.0, 0.9, 0.76);
-    const shadows = new ShadowGenerator(1024, sun);
-    shadows.usePercentageCloserFiltering = true;
+    this.shadowGenerator = new ShadowGenerator(1024, sun);
 
     const asphalt = this.material("asphalt", new Color3(0.105, 0.12, 0.13), 0.96, 0.0);
     const concrete = this.material("sidewalk", new Color3(0.42, 0.43, 0.41), 0.91, 0.0);
@@ -205,6 +266,8 @@ export class GameRuntime {
     const wood = this.material("wood", new Color3(0.38, 0.22, 0.11), 0.67, 0.03);
     const accent = this.material("accent", new Color3(0.62, 0.43, 0.2), 0.58, 0.06);
     const green = this.material("plant", new Color3(0.1, 0.24, 0.12), 0.92, 0.0);
+    const lane = this.material("lane", new Color3(0.82, 0.78, 0.67), 0.82, 0.0);
+    const darkPlaster = this.material("city-plaster", new Color3(0.23, 0.25, 0.27), 0.9, 0.0);
     const glass = this.material("glass", new Color3(0.16, 0.25, 0.31), 0.12, 0.18);
     glass.alpha = 0.34;
     glass.transparencyMode = Material.MATERIAL_ALPHABLEND;
@@ -222,6 +285,24 @@ export class GameRuntime {
     road.receiveShadows = true;
     this.box("curb-left", new Vector3(-10.9, 0.15, -3), new Vector3(0.24, 0.3, 22), concrete, true);
     this.box("curb-right", new Vector3(10.9, 0.15, -3), new Vector3(0.24, 0.3, 22), concrete, true);
+
+    for (let z = -27; z <= -11; z += 4) {
+      this.box(`road-mark-${z}`, new Vector3(0, 0.145, z), new Vector3(0.16, 0.018, 2.1), lane, false);
+    }
+    this.box("crosswalk-a", new Vector3(-2.7, 0.148, -10.6), new Vector3(1.7, 0.018, 0.34), lane, false);
+    this.box("crosswalk-b", new Vector3(0, 0.148, -10.6), new Vector3(1.7, 0.018, 0.34), lane, false);
+    this.box("crosswalk-c", new Vector3(2.7, 0.148, -10.6), new Vector3(1.7, 0.018, 0.34), lane, false);
+
+    for (const [x, z, width, height] of [
+      [-16, 5, 8, 8], [16, 7, 9, 10], [-17, -15, 8, 7], [17, -17, 9, 9], [-15, 25, 10, 12], [15, 27, 8, 8],
+    ] as const) {
+      const block = this.box(`city-block-${x}-${z}`, new Vector3(x, height / 2, z), new Vector3(width, height, 8), darkPlaster, true);
+      this.addShadowCaster(block);
+      for (let level = 1.5; level < height - 0.7; level += 2) {
+        const windows = this.box(`city-window-${x}-${z}-${level}`, new Vector3(x > 0 ? x - width / 2 - 0.04 : x + width / 2 + 0.04, level, z), new Vector3(0.07, 0.7, 4.8), glass, false);
+        windows.isPickable = false;
+      }
+    }
 
     const floor = this.box("market-floor", new Vector3(0, 0.1, 8.1), new Vector3(14.4, 0.18, 11.6), interiorFloor, true);
     floor.receiveShadows = true;
@@ -257,7 +338,7 @@ export class GameRuntime {
     this.box("side-door", new Vector3(6.92, 1.52, 10.2), new Vector3(0.12, 2.85, 2.25), metal, false);
 
     const desk = this.box("dispatch-desk", new Vector3(1.4, 0.62, 11.2), new Vector3(3.1, 1.18, 1.1), wood, true);
-    shadows.addShadowCaster(desk);
+    this.addShadowCaster(desk);
     this.box("desk-top", new Vector3(1.4, 1.24, 11.2), new Vector3(3.28, 0.12, 1.2), trim, false);
     const record = this.box("dispatch-record", new Vector3(1.4, 1.34, 11.2), new Vector3(0.65, 0.07, 0.45), accent, false);
     record.metadata = { label: "TESLİMAT KAYDI", interaction: "objective" } satisfies GameMetadata;
@@ -274,7 +355,7 @@ export class GameRuntime {
     cctv.rotation.z = Math.PI / 2;
     cctv.material = metal;
     cctv.metadata = { intelId: "market_camera", label: "GÜVENLİK KAMERASI" } satisfies GameMetadata;
-    shadows.addShadowCaster(cctv);
+    this.addShadowCaster(cctv);
 
     const workerMarker = this.box("worker-route-intel", new Vector3(-2.8, 1.1, 8.2), new Vector3(0.3, 2.1, 0.3), metal, false);
     workerMarker.visibility = 0.02;
@@ -282,12 +363,12 @@ export class GameRuntime {
 
     for (const x of [-8.5, 8.5]) {
       const planter = this.box(`planter-${x}`, new Vector3(x, 0.38, -0.5), new Vector3(1.35, 0.72, 1.35), concrete, true);
-      shadows.addShadowCaster(planter);
+      this.addShadowCaster(planter);
       const plant = MeshBuilder.CreateSphere(`plant-${x}`, { diameter: 1.35, segments: 8 }, this.scene);
       plant.position = new Vector3(x, 1.25, -0.5);
       plant.scaling.y = 1.35;
       plant.material = green;
-      shadows.addShadowCaster(plant);
+      this.addShadowCaster(plant);
     }
 
     const extraction = this.box("extraction", new Vector3(0, 1, -12), new Vector3(5, 2, 0.12), accent, false);
@@ -306,12 +387,17 @@ export class GameRuntime {
     sky.infiniteDistance = true;
   }
 
+  private addShadowCaster(mesh: Mesh): void {
+    this.shadowCasters.push(mesh);
+    if (this.activeProfile.shadowsEnabled) this.shadowGenerator?.addShadowCaster(mesh);
+  }
+
   private box(name: string, position: Vector3, size: Vector3, material: PBRMaterial, collision: boolean): Mesh {
     const mesh = MeshBuilder.CreateBox(name, { width: size.x, height: size.y, depth: size.z }, this.scene);
     mesh.position.copyFrom(position);
     mesh.material = material;
     mesh.checkCollisions = collision;
-    mesh.receiveShadows = collision;
+    mesh.receiveShadows = collision && this.activeProfile.shadowsEnabled;
     return mesh;
   }
 
