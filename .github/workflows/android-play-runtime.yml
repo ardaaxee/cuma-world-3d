@@ -31,20 +31,26 @@ jobs:
         with:
           node-version: '22'
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Extract production CUMA character asset
+      - name: Extract best available CUMA character asset
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p public/assets/characters
-          unzip -p "$SOURCE_ARCHIVE" assets/characters/cuma_high.glb > public/assets/characters/cuma_high.glb
-          test -s public/assets/characters/cuma_high.glb
-          sha256sum public/assets/characters/cuma_high.glb > /tmp/cuma_high.glb.sha256
-          ls -lh public/assets/characters/cuma_high.glb
+          CHARACTER_PATH="$(unzip -Z1 "$SOURCE_ARCHIVE" | grep -E '(^|/)assets/characters/cuma_high\.glb$' | head -n1 || true)"
+          if [ -z "$CHARACTER_PATH" ]; then
+            CHARACTER_PATH="$(unzip -Z1 "$SOURCE_ARCHIVE" | grep -E '(^|/)assets/characters/cuma\.glb$' | head -n1 || true)"
+          fi
+          test -n "$CHARACTER_PATH"
+          unzip -p "$SOURCE_ARCHIVE" "$CHARACTER_PATH" > public/assets/characters/cuma_runtime.glb
+          test -s public/assets/characters/cuma_runtime.glb
+          printf '%s\n' "$CHARACTER_PATH" > /tmp/cuma_character_source.txt
+          sha256sum public/assets/characters/cuma_runtime.glb > /tmp/cuma_runtime.glb.sha256
+          ls -lh public/assets/characters/cuma_runtime.glb
 
       - name: Install web runtime dependencies
         run: npm install --no-audit --no-fund
@@ -54,7 +60,7 @@ jobs:
         run: |
           set -euxo pipefail
           VITE_BUILD_SHA="$GITHUB_SHA" npm run build
-          test -s dist/assets/characters/cuma_high.glb
+          test -s dist/assets/characters/cuma_runtime.glb
 
       - name: Create native Android project
         shell: bash
@@ -116,7 +122,8 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           AAB_SHA="$(sha256sum "$AAB" | awk '{print $1}')"
           APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
-          MODEL_SHA="$(awk '{print $1}' /tmp/cuma_high.glb.sha256)"
+          MODEL_SHA="$(awk '{print $1}' /tmp/cuma_runtime.glb.sha256)"
+          MODEL_SOURCE="$(cat /tmp/cuma_character_source.txt)"
           {
             echo 'CUMA WORLD Android Play Runtime'
             echo "commit=$GITHUB_SHA"
@@ -124,7 +131,8 @@ jobs:
             echo "play_upload_signed=${PLAY_UPLOAD_SIGNED:-false}"
             echo "aab_sha256=$AAB_SHA"
             echo "apk_sha256=$APK_SHA"
-            echo "cuma_high_glb_sha256=$MODEL_SHA"
+            echo "cuma_model_source=$MODEL_SOURCE"
+            echo "cuma_model_sha256=$MODEL_SHA"
           } > android/BUILD_INFO.txt
           cat android/BUILD_INFO.txt
 
