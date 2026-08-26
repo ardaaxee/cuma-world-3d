@@ -1,0 +1,45 @@
+body.hud-compact.hud-quiet .mission-card{
+  width:auto!important;
+  max-width:min(188px,42vw);
+  padding:6px 9px!important;
+  border-radius:999px!important;
+  opacity:.72!important;
+  background:rgba(7,10,14,.46)!important;
+  box-shadow:0 6px 18px rgba(0,0,0,.16)!important;
+}
+body.hud-compact.hud-quiet .mission-card .eyebrow,
+body.hud-compact.hud-quiet .mission-title,
+body.hud-compact.hud-quiet .objective{
+  display:none!important;
+}
+body.hud-compact.hud-quiet .mission-card .intel{
+  margin:0!important;
+  font-size:7px!important;
+  line-height:1!important;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+body.hud-compact.hud-quiet .focus-reticle{
+  opacity:.34;
+}
+body.hud-compact.hud-quiet.recon-active .focus-reticle{
+  opacity:.9;
+}
+@media(orientation:landscape){
+  body.hud-compact.hud-quiet .mission-card{
+    max-width:min(176px,25vw);
+    padding:5px 8px!important;
+  }
+  body.hud-compact.hud-quiet .hud-icon{
+    opacity:.78;
+  }
+}
+@media(orientation:landscape) and (max-height:430px){
+  body.hud-compact.hud-quiet .mission-card{
+    max-width:min(160px,24vw);
+  }
+  body.hud-compact.hud-quiet .mission-card .intel{
+    font-size:6.5px!important;
+  }
+}
