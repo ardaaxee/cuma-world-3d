@@ -20,6 +20,13 @@ export class PlayerCharacter {
   private imported = false;
   private speed = 0;
   private stride = 0;
+  private idlePhase = 0;
+  private torsoPivot: TransformNode | null = null;
+  private headPivot: TransformNode | null = null;
+  private leftArmPivot: TransformNode | null = null;
+  private rightArmPivot: TransformNode | null = null;
+  private leftLegPivot: TransformNode | null = null;
+  private rightLegPivot: TransformNode | null = null;
 
   constructor(private readonly scene: Scene) {
     this.collider = MeshBuilder.CreateCapsule("player-collider", { height: 1.72, radius: 0.34, tessellation: 8 }, scene);
@@ -64,20 +71,35 @@ export class PlayerCharacter {
       this.updateImportedAnimation(this.speed);
       return;
     }
-    if (reducedMotion) return;
-    this.stride += this.speed * dt * 2.15;
-    const walk = Math.min(1, this.speed / 4.15);
-    const swing = Math.sin(this.stride) * 0.42 * walk;
-    const bob = Math.abs(Math.sin(this.stride * 0.5)) * 0.025 * walk;
-    this.visualRoot.position.y = -0.86 + bob;
-    const leftArm = this.proceduralParts.find((part) => part.name === "player-left-arm");
-    const rightArm = this.proceduralParts.find((part) => part.name === "player-right-arm");
-    const leftLeg = this.proceduralParts.find((part) => part.name === "player-left-leg");
-    const rightLeg = this.proceduralParts.find((part) => part.name === "player-right-leg");
-    if (leftArm) leftArm.rotation.x = swing;
-    if (rightArm) rightArm.rotation.x = -swing;
-    if (leftLeg) leftLeg.rotation.x = -swing * 0.72;
-    if (rightLeg) rightLeg.rotation.x = swing * 0.72;
+
+    this.idlePhase += dt * 1.6;
+    const locomotion = Math.min(1, this.speed / 4.15);
+    const running = Math.max(0, Math.min(1, (this.speed - 2.8) / 1.35));
+    const motionScale = reducedMotion ? 0.58 : 1;
+    this.stride += Math.max(0.35, this.speed) * dt * (2.0 + running * 0.72);
+
+    const cycle = Math.sin(this.stride);
+    const swing = cycle * (0.36 + running * 0.16) * locomotion * motionScale;
+    const legSwing = cycle * (0.48 + running * 0.12) * locomotion * motionScale;
+    const bob = Math.abs(Math.sin(this.stride)) * (0.022 + running * 0.013) * locomotion * motionScale;
+    const breathe = Math.sin(this.idlePhase) * 0.006 * (1 - locomotion) * motionScale;
+
+    this.visualRoot.position.y = -0.86 + bob + breathe;
+
+    if (this.leftArmPivot) this.leftArmPivot.rotation.x = swing;
+    if (this.rightArmPivot) this.rightArmPivot.rotation.x = -swing;
+    if (this.leftLegPivot) this.leftLegPivot.rotation.x = -legSwing;
+    if (this.rightLegPivot) this.rightLegPivot.rotation.x = legSwing;
+
+    if (this.torsoPivot) {
+      this.torsoPivot.rotation.x = -0.045 * running * motionScale;
+      this.torsoPivot.rotation.z = cycle * 0.018 * locomotion * motionScale;
+      this.torsoPivot.scaling.y = 1 + Math.sin(this.idlePhase) * 0.006 * (1 - locomotion) * motionScale;
+    }
+    if (this.headPivot) {
+      this.headPivot.rotation.z = -cycle * 0.014 * locomotion * motionScale;
+      this.headPivot.rotation.x = 0.018 * running * motionScale;
+    }
   }
 
   private async tryLoadRuntimeModel(): Promise<void> {
@@ -124,35 +146,80 @@ export class PlayerCharacter {
   }
 
   private buildProceduralFallback(): void {
-    const cloth = this.material("player-cloth", new Color3(0.055, 0.065, 0.075), 0.74, 0.03);
+    const jacket = this.material("player-jacket", new Color3(0.045, 0.052, 0.061), 0.64, 0.08);
+    const jacketEdge = this.material("player-jacket-edge", new Color3(0.075, 0.082, 0.09), 0.58, 0.12);
+    const shirt = this.material("player-shirt", new Color3(0.68, 0.69, 0.67), 0.82, 0.0);
+    const tie = this.material("player-tie", new Color3(0.12, 0.035, 0.032), 0.66, 0.04);
+    const trouser = this.material("player-trouser", new Color3(0.055, 0.06, 0.067), 0.76, 0.02);
     const skin = this.material("player-skin", new Color3(0.54, 0.39, 0.29), 0.68, 0.0);
-    const shoe = this.material("player-shoe", new Color3(0.025, 0.028, 0.032), 0.62, 0.12);
+    const hair = this.material("player-hair", new Color3(0.035, 0.027, 0.022), 0.88, 0.0);
+    const shoe = this.material("player-shoe", new Color3(0.018, 0.021, 0.026), 0.42, 0.28);
 
-    const torso = MeshBuilder.CreateCapsule("player-torso", { height: 0.72, radius: 0.24, tessellation: 8 }, this.scene);
-    torso.parent = this.visualRoot;
-    torso.position = new Vector3(0, 1.18, 0);
-    torso.scaling = new Vector3(1.0, 1.0, 0.72);
-    torso.material = cloth;
+    this.torsoPivot = new TransformNode("player-torso-pivot", this.scene);
+    this.torsoPivot.parent = this.visualRoot;
+    this.torsoPivot.position = new Vector3(0, 1.12, 0);
+
+    const torso = MeshBuilder.CreateCapsule("player-torso", { height: 0.7, radius: 0.255, tessellation: 10 }, this.scene);
+    torso.parent = this.torsoPivot;
+    torso.position = new Vector3(0, 0.06, 0);
+    torso.scaling = new Vector3(1.08, 1, 0.72);
+    torso.material = jacket;
     this.proceduralParts.push(torso);
 
-    const head = MeshBuilder.CreateSphere("player-head", { diameter: 0.38, segments: 10 }, this.scene);
-    head.parent = this.visualRoot;
-    head.position = new Vector3(0, 1.69, 0);
+    const shirtFront = MeshBuilder.CreateBox("player-shirt-front", { width: 0.16, height: 0.48, depth: 0.035 }, this.scene);
+    shirtFront.parent = this.torsoPivot;
+    shirtFront.position = new Vector3(0, 0.11, 0.205);
+    shirtFront.material = shirt;
+    this.proceduralParts.push(shirtFront);
+
+    const tieFront = MeshBuilder.CreateBox("player-tie-front", { width: 0.045, height: 0.34, depth: 0.018 }, this.scene);
+    tieFront.parent = this.torsoPivot;
+    tieFront.position = new Vector3(0, 0.1, 0.228);
+    tieFront.material = tie;
+    this.proceduralParts.push(tieFront);
+
+    for (const x of [-0.15, 0.15]) {
+      const lapel = MeshBuilder.CreateBox(`player-lapel-${x}`, { width: 0.085, height: 0.38, depth: 0.025 }, this.scene);
+      lapel.parent = this.torsoPivot;
+      lapel.position = new Vector3(x, 0.15, 0.224);
+      lapel.rotation.z = x < 0 ? -0.24 : 0.24;
+      lapel.material = jacketEdge;
+      this.proceduralParts.push(lapel);
+    }
+
+    const belt = MeshBuilder.CreateBox("player-belt", { width: 0.46, height: 0.055, depth: 0.29 }, this.scene);
+    belt.parent = this.visualRoot;
+    belt.position = new Vector3(0, 0.79, 0);
+    belt.material = jacketEdge;
+    this.proceduralParts.push(belt);
+
+    const neck = MeshBuilder.CreateCylinder("player-neck", { height: 0.14, diameter: 0.16, tessellation: 10 }, this.scene);
+    neck.parent = this.visualRoot;
+    neck.position = new Vector3(0, 1.52, 0);
+    neck.material = skin;
+    this.proceduralParts.push(neck);
+
+    this.headPivot = new TransformNode("player-head-pivot", this.scene);
+    this.headPivot.parent = this.visualRoot;
+    this.headPivot.position = new Vector3(0, 1.67, 0);
+
+    const head = MeshBuilder.CreateSphere("player-head", { diameter: 0.38, segments: 12 }, this.scene);
+    head.parent = this.headPivot;
+    head.scaling = new Vector3(0.92, 1.08, 0.88);
     head.material = skin;
     this.proceduralParts.push(head);
 
-    this.limb("player-left-arm", new Vector3(-0.31, 1.2, 0), 0.62, 0.09, cloth);
-    this.limb("player-right-arm", new Vector3(0.31, 1.2, 0), 0.62, 0.09, cloth);
-    this.limb("player-left-leg", new Vector3(-0.13, 0.56, 0), 0.9, 0.105, cloth);
-    this.limb("player-right-leg", new Vector3(0.13, 0.56, 0), 0.9, 0.105, cloth);
+    const hairCap = MeshBuilder.CreateSphere("player-hair", { diameter: 0.39, segments: 10 }, this.scene);
+    hairCap.parent = this.headPivot;
+    hairCap.position = new Vector3(0, 0.085, -0.006);
+    hairCap.scaling = new Vector3(0.94, 0.52, 0.9);
+    hairCap.material = hair;
+    this.proceduralParts.push(hairCap);
 
-    for (const x of [-0.13, 0.13]) {
-      const foot = MeshBuilder.CreateBox(`player-foot-${x}`, { width: 0.19, height: 0.12, depth: 0.34 }, this.scene);
-      foot.parent = this.visualRoot;
-      foot.position = new Vector3(x, 0.08, 0.07);
-      foot.material = shoe;
-      this.proceduralParts.push(foot);
-    }
+    this.leftArmPivot = this.buildArm("left", -0.285, jacket, skin);
+    this.rightArmPivot = this.buildArm("right", 0.285, jacket, skin);
+    this.leftLegPivot = this.buildLeg("left", -0.13, trouser, shoe);
+    this.rightLegPivot = this.buildLeg("right", 0.13, trouser, shoe);
 
     for (const part of this.proceduralParts) {
       part.isPickable = false;
@@ -160,13 +227,49 @@ export class PlayerCharacter {
     }
   }
 
-  private limb(name: string, position: Vector3, height: number, radius: number, material: PBRMaterial): void {
-    const limb = MeshBuilder.CreateCapsule(name, { height, radius, tessellation: 8 }, this.scene);
-    limb.parent = this.visualRoot;
-    limb.position = position;
-    limb.material = material;
-    limb.isPickable = false;
-    this.proceduralParts.push(limb);
+  private buildArm(side: "left" | "right", x: number, sleeve: PBRMaterial, skin: PBRMaterial): TransformNode {
+    const pivot = new TransformNode(`player-${side}-shoulder`, this.scene);
+    pivot.parent = this.visualRoot;
+    pivot.position = new Vector3(x, 1.38, 0);
+
+    const upper = MeshBuilder.CreateCapsule(`player-${side}-arm`, { height: 0.56, radius: 0.082, tessellation: 8 }, this.scene);
+    upper.parent = pivot;
+    upper.position = new Vector3(0, -0.265, 0);
+    upper.material = sleeve;
+    this.proceduralParts.push(upper);
+
+    const cuff = MeshBuilder.CreateCylinder(`player-${side}-cuff`, { height: 0.08, diameter: 0.15, tessellation: 8 }, this.scene);
+    cuff.parent = pivot;
+    cuff.position = new Vector3(0, -0.53, 0);
+    cuff.material = sleeve;
+    this.proceduralParts.push(cuff);
+
+    const hand = MeshBuilder.CreateSphere(`player-${side}-hand`, { diameter: 0.145, segments: 8 }, this.scene);
+    hand.parent = pivot;
+    hand.position = new Vector3(0, -0.61, 0.015);
+    hand.scaling = new Vector3(0.82, 1.12, 0.78);
+    hand.material = skin;
+    this.proceduralParts.push(hand);
+    return pivot;
+  }
+
+  private buildLeg(side: "left" | "right", x: number, trouser: PBRMaterial, shoe: PBRMaterial): TransformNode {
+    const pivot = new TransformNode(`player-${side}-hip`, this.scene);
+    pivot.parent = this.visualRoot;
+    pivot.position = new Vector3(x, 0.78, 0);
+
+    const leg = MeshBuilder.CreateCapsule(`player-${side}-leg`, { height: 0.72, radius: 0.105, tessellation: 8 }, this.scene);
+    leg.parent = pivot;
+    leg.position = new Vector3(0, -0.35, 0);
+    leg.material = trouser;
+    this.proceduralParts.push(leg);
+
+    const shoeMesh = MeshBuilder.CreateBox(`player-${side}-shoe`, { width: 0.19, height: 0.12, depth: 0.34 }, this.scene);
+    shoeMesh.parent = pivot;
+    shoeMesh.position = new Vector3(0, -0.735, 0.075);
+    shoeMesh.material = shoe;
+    this.proceduralParts.push(shoeMesh);
+    return pivot;
   }
 
   private material(name: string, color: Color3, roughness: number, metallic: number): PBRMaterial {
@@ -174,6 +277,7 @@ export class PlayerCharacter {
     material.albedoColor = color;
     material.roughness = roughness;
     material.metallic = metallic;
+    material.environmentIntensity = 0.72;
     return material;
   }
 }
