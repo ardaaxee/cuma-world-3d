@@ -86,12 +86,18 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          VITE_BUILD_SHA="$GITHUB_SHA" npm run build
+          VITE_BUILD_SHA="$GITHUB_SHA" VITE_CUMA_MODEL_PACKAGED="${CUMA_MODEL_PACKAGED:-false}" npm run build
           test -s dist/index.html
+          grep -q '"version": "11.0.0-pre.1"' package.json
           grep -q 'graphics-tier' index.html
           grep -q 'runtime11' src/main.ts
+          grep -q 'hud.css' src/main.ts
           grep -q 'useOpportunity' src/game/mission.ts
           grep -q 'camera_bypass' src/game/mission.ts
+          grep -q 'investigateTimer' src/game/npc.ts
+          grep -q 'wasMuted' src/game/audio.ts
+          grep -q 'freezeWorldMatrix' src/game/visuals.ts
+          grep -q 'VITE_CUMA_MODEL_PACKAGED' src/game/character.ts
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
           if [ "${CUMA_MODEL_PACKAGED:-false}" = 'true' ]; then
             test -s dist/assets/characters/cuma_runtime.glb
@@ -121,6 +127,10 @@ jobs:
               if anchor not in text:
                   raise SystemExit('Android activity export anchor not found')
               text = text.replace(anchor, anchor + '\n            android:screenOrientation="sensorLandscape"', 1)
+          if 'android:usesCleartextTraffic=' in text:
+              text = re.sub(r'android:usesCleartextTraffic="[^"]+"', 'android:usesCleartextTraffic="false"', text, count=1)
+          else:
+              text = text.replace('<application', '<application android:usesCleartextTraffic="false"', 1)
           manifest.write_text(text, encoding='utf-8')
 
           gradle = Path('android/app/build.gradle')
@@ -142,6 +152,7 @@ jobs:
           wrapper.write_text(props, encoding='utf-8')
           PY
           grep -F 'android:screenOrientation="sensorLandscape"' android/app/src/main/AndroidManifest.xml
+          grep -F 'android:usesCleartextTraffic="false"' android/app/src/main/AndroidManifest.xml
           grep -E "versionCode +${CUMA_VERSION_CODE}$" android/app/build.gradle
           grep -F "versionName \"${CUMA_VERSION_NAME}\"" android/app/build.gradle
           grep -F 'networkTimeout=120000' android/gradle/wrapper/gradle-wrapper.properties
@@ -220,6 +231,7 @@ jobs:
             echo "versionName=$CUMA_VERSION_NAME"
             echo 'targetSdk=36'
             echo 'orientation=sensorLandscape'
+            echo 'cleartextTraffic=false'
             echo "play_upload_signed=${PLAY_UPLOAD_SIGNED:-false}"
             echo "aab_sha256=$AAB_SHA"
             echo "apk_sha256=$APK_SHA"
