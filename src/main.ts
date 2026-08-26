@@ -1,14 +1,16 @@
 import "./styles.css";
 import "./briefing.css";
 import "./hud.css";
-import { GameRuntime } from "./game/runtime11";
 import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   type FpsSetting,
   type GraphicsPreferences,
   type GraphicsTier,
+  type ResolvedGraphicsProfile,
   type ResolutionSetting,
   type ShadowSetting,
+  loadGraphicsPreferences,
+  resolveGraphicsProfile,
   saveGraphicsPreferences,
 } from "./game/graphics";
 import {
@@ -19,6 +21,15 @@ import {
   loadGameplayPreferences,
   saveGameplayPreferences,
 } from "./game/preferences";
+
+type RuntimeApi = {
+  start(): void;
+  setPaused(paused: boolean): void;
+  unlockAudio(): Promise<void>;
+  setLookSensitivity(value: number): void;
+  setAudioVolume(value: number): void;
+  applyGraphicsPreferences(preferences: GraphicsPreferences): ResolvedGraphicsProfile;
+};
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -50,10 +61,9 @@ const awarenessStatus = required<HTMLElement>("#awareness");
 const buildSha = (import.meta.env.VITE_BUILD_SHA || "dev").slice(0, 8);
 buildLabel.textContent = `ANDROID PLAY RUNTIME 11 · ${buildSha.toUpperCase()} · PRE-RELEASE`;
 
-const runtime = new GameRuntime(canvas);
 const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
-runtime.start();
-
+let runtime: RuntimeApi | null = null;
+let runtimeStarting = false;
 let activeHudMode: HudMode = "COMPACT";
 let hudQuietTimer: number | null = null;
 
@@ -98,11 +108,15 @@ function readGraphicsPreferences(): GraphicsPreferences {
   };
 }
 
+function renderGraphicsStatus(profile: ResolvedGraphicsProfile): void {
+  graphicsStatus.textContent = `${profile.tier} · RENDER %${Math.round(profile.renderScale * 100)} · ${profile.targetFps} FPS · GÖLGE ${profile.shadowsEnabled ? (profile.softShadows ? "YUMUŞAK" : "AÇIK") : "KAPALI"} · GÖRÜŞ ${profile.cameraFar}M`;
+}
+
 function applyGraphicsPreferences(): void {
   const preferences = readGraphicsPreferences();
   saveGraphicsPreferences(preferences);
-  const profile = runtime.applyGraphicsPreferences(preferences);
-  graphicsStatus.textContent = `${profile.tier} · RENDER %${Math.round(profile.renderScale * 100)} · ${profile.targetFps} FPS · GÖLGE ${profile.shadowsEnabled ? (profile.softShadows ? "YUMUŞAK" : "AÇIK") : "KAPALI"} · GÖRÜŞ ${profile.cameraFar}M`;
+  const profile = runtime ? runtime.applyGraphicsPreferences(preferences) : resolveGraphicsProfile(preferences);
+  renderGraphicsStatus(profile);
 }
 
 function syncGameplayControls(preferences: GameplayPreferences): void {
@@ -122,8 +136,8 @@ function readGameplayPreferences(): GameplayPreferences {
 function applyGameplayPreferences(): void {
   const preferences = readGameplayPreferences();
   saveGameplayPreferences(preferences);
-  runtime.setLookSensitivity(preferences.lookSensitivity);
-  runtime.setAudioVolume(preferences.audioVolume);
+  runtime?.setLookSensitivity(preferences.lookSensitivity);
+  runtime?.setAudioVolume(preferences.audioVolume);
   uiAudioFeedback.setVolume(preferences.audioVolume);
   activeHudMode = preferences.hudMode;
   document.body.classList.toggle("hud-compact", activeHudMode === "COMPACT");
@@ -135,17 +149,17 @@ function openSettings(): void {
   wakeHud();
   settingsPanel.classList.remove("hidden");
   document.body.classList.add("settings-open");
-  runtime.setPaused(true);
+  runtime?.setPaused(true);
 }
 
 function closeSettings(): void {
   settingsPanel.classList.add("hidden");
   document.body.classList.remove("settings-open");
-  runtime.setPaused(false);
+  runtime?.setPaused(false);
   scheduleHudQuiet();
 }
 
-syncGraphicsControls(runtime.getGraphicsPreferences());
+syncGraphicsControls(loadGraphicsPreferences());
 applyGraphicsPreferences();
 const gameplayPreferences = loadGameplayPreferences();
 syncGameplayControls(gameplayPreferences);
@@ -164,12 +178,38 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !settingsPanel.classList.contains("hidden")) closeSettings();
 });
 
-enter.addEventListener("click", () => {
-  boot.classList.add("hidden");
-  hud.classList.remove("hidden");
-  controls.classList.remove("hidden");
-  wakeHud();
-  scheduleHudQuiet();
-  void runtime.unlockAudio();
-  void uiAudioFeedback.unlock();
+enter.addEventListener("click", async () => {
+  if (runtimeStarting || runtime) return;
+  runtimeStarting = true;
+  const originalLabel = enter.textContent ?? "OPERASYONU BAŞLAT";
+  enter.disabled = true;
+  enter.textContent = "OPERASYON YÜKLENİYOR…";
+
+  try {
+    const { GameRuntime } = await import("./game/runtime11");
+    const activeRuntime = new GameRuntime(canvas);
+    runtime = activeRuntime;
+    activeRuntime.applyGraphicsPreferences(readGraphicsPreferences());
+    const gameplay = readGameplayPreferences();
+    activeRuntime.setLookSensitivity(gameplay.lookSensitivity);
+    activeRuntime.setAudioVolume(gameplay.audioVolume);
+    activeRuntime.start();
+
+    boot.classList.add("hidden");
+    hud.classList.remove("hidden");
+    controls.classList.remove("hidden");
+    wakeHud();
+    scheduleHudQuiet();
+    await Promise.allSettled([activeRuntime.unlockAudio(), uiAudioFeedback.unlock()]);
+  } catch (error) {
+    console.error("CUMA WORLD runtime start failed", error);
+    runtime = null;
+    enter.disabled = false;
+    enter.textContent = "TEKRAR DENE";
+    runtimeStarting = false;
+    return;
+  }
+
+  enter.textContent = originalLabel;
+  runtimeStarting = false;
 });
