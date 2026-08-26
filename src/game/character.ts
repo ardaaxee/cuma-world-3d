@@ -1,4 +1,5 @@
 import {
+  AnimationGroup,
   Color3,
   Mesh,
   MeshBuilder,
@@ -15,6 +16,8 @@ export class PlayerCharacter {
   readonly visualRoot: TransformNode;
   readonly cameraTarget: TransformNode;
   private readonly proceduralParts: Mesh[] = [];
+  private readonly importedAnimations = new Map<"idle" | "walk" | "run", AnimationGroup>();
+  private currentAnimation: "" | "idle" | "walk" | "run" = "";
   private imported = false;
   private speed = 0;
   private stride = 0;
@@ -58,7 +61,11 @@ export class PlayerCharacter {
 
   update(speed: number, dt: number, reducedMotion: boolean): void {
     this.speed += (speed - this.speed) * (1 - Math.exp(-10 * dt));
-    if (this.imported || reducedMotion) return;
+    if (this.imported) {
+      this.updateImportedAnimation(this.speed);
+      return;
+    }
+    if (reducedMotion) return;
     this.stride += this.speed * dt * 2.15;
     const walk = Math.min(1, this.speed / 4.15);
     const swing = Math.sin(this.stride) * 0.42 * walk;
@@ -89,12 +96,32 @@ export class PlayerCharacter {
       }
       root.scaling = new Vector3(1, 1, 1);
       root.position = Vector3.Zero();
+      for (const group of result.animationGroups) {
+        if (/idle/i.test(group.name) && !this.importedAnimations.has("idle")) this.importedAnimations.set("idle", group);
+        else if (/run|sprint/i.test(group.name) && !this.importedAnimations.has("run")) this.importedAnimations.set("run", group);
+        else if (/walk|locomotion/i.test(group.name) && !this.importedAnimations.has("walk")) this.importedAnimations.set("walk", group);
+      }
       this.imported = true;
-      const idle = result.animationGroups.find((group) => /idle/i.test(group.name));
-      idle?.start(true, 1.0);
+      this.playImportedAnimation("idle");
     } catch {
       this.imported = false;
     }
+  }
+
+  private updateImportedAnimation(speed: number): void {
+    const requested: "idle" | "walk" | "run" = speed < 0.25 ? "idle" : speed > 3.35 ? "run" : "walk";
+    this.playImportedAnimation(requested);
+  }
+
+  private playImportedAnimation(name: "idle" | "walk" | "run"): void {
+    if (this.currentAnimation === name) return;
+    const group = this.importedAnimations.get(name) ?? (name === "run" ? this.importedAnimations.get("walk") : undefined) ?? this.importedAnimations.get("idle");
+    if (!group) return;
+    for (const animation of this.importedAnimations.values()) {
+      if (animation !== group && animation.isPlaying) animation.stop();
+    }
+    if (!group.isPlaying) group.start(true, name === "run" ? 1.08 : 1.0);
+    this.currentAnimation = name;
   }
 
   private buildProceduralFallback(): void {
