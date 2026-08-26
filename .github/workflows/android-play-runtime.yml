@@ -11,13 +11,17 @@ on:
       - 'vite.config.ts'
       - 'capacitor.config.ts'
       - '.github/workflows/android-play-runtime.yml'
+      - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  SOURCE_ARCHIVE: CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip
+
 jobs:
-  android-aab:
+  android-play-build:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -32,14 +36,30 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Extract production CUMA character asset
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p public/assets/characters
+          unzip -p "$SOURCE_ARCHIVE" assets/characters/cuma_high.glb > public/assets/characters/cuma_high.glb
+          test -s public/assets/characters/cuma_high.glb
+          sha256sum public/assets/characters/cuma_high.glb > /tmp/cuma_high.glb.sha256
+          ls -lh public/assets/characters/cuma_high.glb
+
       - name: Install web runtime dependencies
         run: npm install --no-audit --no-fund
 
       - name: Typecheck and build game runtime
-        run: npm run build
+        shell: bash
+        run: |
+          set -euxo pipefail
+          VITE_BUILD_SHA="$GITHUB_SHA" npm run build
+          test -s dist/assets/characters/cuma_high.glb
 
       - name: Create native Android project
+        shell: bash
         run: |
+          set -euxo pipefail
           npx cap add android
           npx cap sync android
           grep -F 'targetSdkVersion = 36' android/variables.gradle
@@ -53,15 +73,17 @@ jobs:
           yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platform-tools' 'platforms;android-36' 'build-tools;36.0.0'
 
-      - name: Build release Android App Bundle
+      - name: Build test APK and Play App Bundle
         shell: bash
         run: |
+          set -euxo pipefail
           chmod +x android/gradlew
           cd android
-          ./gradlew bundleRelease --stacktrace
+          ./gradlew assembleDebug bundleRelease --stacktrace
+          test -s app/build/outputs/apk/debug/app-debug.apk
           test -s app/build/outputs/bundle/release/app-release.aab
 
-      - name: Optionally sign upload bundle
+      - name: Optionally sign Play upload bundle
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -69,8 +91,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           AAB='android/app/build/outputs/bundle/release/app-release.aab'
-          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEY_ALIAS" ]; then
+          if [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ]; then
             printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/cuma-upload.jks
             jarsigner -sigalg SHA256withRSA -digestalg SHA-256 \
               -keystore /tmp/cuma-upload.jks \
@@ -82,14 +105,38 @@ jobs:
           else
             echo 'PLAY_UPLOAD_SIGNED=false' >> "$GITHUB_ENV"
           fi
-          sha256sum "$AAB" > "$AAB.sha256"
 
-      - name: Upload Android App Bundle
+      - name: Generate SHA-256 and build manifest
+        shell: bash
+        run: |
+          set -euxo pipefail
+          AAB='android/app/build/outputs/bundle/release/app-release.aab'
+          APK='android/app/build/outputs/apk/debug/app-debug.apk'
+          sha256sum "$AAB" > "$AAB.sha256"
+          sha256sum "$APK" > "$APK.sha256"
+          AAB_SHA="$(sha256sum "$AAB" | awk '{print $1}')"
+          APK_SHA="$(sha256sum "$APK" | awk '{print $1}')"
+          MODEL_SHA="$(awk '{print $1}' /tmp/cuma_high.glb.sha256)"
+          {
+            echo 'CUMA WORLD Android Play Runtime'
+            echo "commit=$GITHUB_SHA"
+            echo 'targetSdk=36'
+            echo "play_upload_signed=${PLAY_UPLOAD_SIGNED:-false}"
+            echo "aab_sha256=$AAB_SHA"
+            echo "apk_sha256=$APK_SHA"
+            echo "cuma_high_glb_sha256=$MODEL_SHA"
+          } > android/BUILD_INFO.txt
+          cat android/BUILD_INFO.txt
+
+      - name: Upload Android test and Play artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: CUMA-WORLD-Android-Play-AAB
+          name: CUMA-WORLD-Android-Play-Build
           path: |
+            android/app/build/outputs/apk/debug/app-debug.apk
+            android/app/build/outputs/apk/debug/app-debug.apk.sha256
             android/app/build/outputs/bundle/release/app-release.aab
             android/app/build/outputs/bundle/release/app-release.aab.sha256
+            android/BUILD_INFO.txt
           if-no-files-found: error
           retention-days: 7
