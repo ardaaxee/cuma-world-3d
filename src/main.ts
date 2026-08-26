@@ -1,4 +1,5 @@
 import "./styles.css";
+import "./briefing.css";
 import { GameRuntime } from "./game/runtime11";
 import {
   type FpsSetting,
