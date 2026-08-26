@@ -53,11 +53,19 @@ jobs:
             game/scripts/day_night.gd
             game/scripts/door.gd
             game/scripts/ui/phone_ui.gd
+            game/scripts/ui/social_interaction_ui.gd
             game/scripts/intelligence/intel_system.gd
+            game/scripts/intelligence/intel_target.gd
             game/scripts/intelligence/observation_controller.gd
             game/scripts/intelligence/mission_system.gd
+            game/scripts/intelligence/mission_interactable.gd
             game/scripts/intelligence/intelligence_stealth_builder.gd
             game/scripts/stealth/awareness_system.gd
+            game/scripts/crime/security_camera.gd
+            game/scripts/social/npc_intelligence_director.gd
+            game/scripts/social/npc_interaction_proxy.gd
+            game/scripts/world/npc_walker.gd
+            game/scripts/navigation/physical_navigation_world.gd
             game/scripts/action/cinematic_action_runtime.gd
             game/scripts/action/cinematic_action_hud.gd
           if-no-files-found: warn
