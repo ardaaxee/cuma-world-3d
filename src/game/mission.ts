@@ -1,4 +1,5 @@
 export type MissionState = "BRIEFING" | "RECON" | "PLANNING" | "INFILTRATE" | "EXTRACT" | "COMPLETE";
+export type MissionInteraction = "route-main" | "route-side" | "objective" | "extract" | "camera-bypass";
 
 export interface MissionSnapshot {
   state: MissionState;
@@ -53,10 +54,22 @@ export class MissionDirector {
     return true;
   }
 
+  canInteract(interaction: MissionInteraction): boolean {
+    if (interaction === "route-main") return this.state === "PLANNING" && this.intel.has("market_front_access");
+    if (interaction === "route-side") return this.state === "PLANNING" && this.intel.has("market_side_access");
+    if (interaction === "objective") return this.state === "INFILTRATE" && Boolean(this.selectedRoute);
+    if (interaction === "extract") return this.state === "EXTRACT";
+    if (interaction === "camera-bypass") {
+      return (this.state === "INFILTRATE" || this.state === "EXTRACT")
+        && this.intel.has("market_camera")
+        && !this.opportunities.has("camera_bypass");
+    }
+    return false;
+  }
+
   chooseRoute(route: "main" | "side"): boolean {
-    if (this.state !== "PLANNING") return false;
-    const required = route === "main" ? "market_front_access" : "market_side_access";
-    if (!this.intel.has(required)) return false;
+    const interaction: MissionInteraction = route === "main" ? "route-main" : "route-side";
+    if (!this.canInteract(interaction)) return false;
     this.selectedRoute = route;
     this.state = "INFILTRATE";
     this.persist();
@@ -64,23 +77,21 @@ export class MissionDirector {
   }
 
   useOpportunity(id: "camera_bypass"): boolean {
-    if (this.state !== "INFILTRATE" && this.state !== "EXTRACT") return false;
-    if (id === "camera_bypass" && !this.intel.has("market_camera")) return false;
-    if (this.opportunities.has(id)) return false;
+    if (!this.canInteract("camera-bypass")) return false;
     this.opportunities.add(id);
     this.persist();
     return true;
   }
 
   completeObjective(): boolean {
-    if (this.state !== "INFILTRATE" || !this.selectedRoute) return false;
+    if (!this.canInteract("objective")) return false;
     this.state = "EXTRACT";
     this.persist();
     return true;
   }
 
   extract(): boolean {
-    if (this.state !== "EXTRACT") return false;
+    if (!this.canInteract("extract")) return false;
     this.state = "COMPLETE";
     this.persist();
     return true;
