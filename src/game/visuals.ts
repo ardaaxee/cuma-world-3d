@@ -74,6 +74,7 @@ export class VisualPolish {
       bollard.position = new Vector3(x, 0.42, 0.7);
       bollard.material = darkMetal;
       bollard.isPickable = false;
+      bollard.freezeWorldMatrix();
       this.mediumDetails.push(bollard);
       this.addShadowCaster(bollard);
     }
@@ -155,6 +156,7 @@ export class VisualPolish {
         pole.position = new Vector3(x, 2.1, z);
         pole.material = poleMaterial;
         pole.isPickable = false;
+        pole.freezeWorldMatrix();
         this.mediumDetails.push(pole);
         this.addShadowCaster(pole);
 
@@ -183,12 +185,14 @@ export class VisualPolish {
       trunk.position = new Vector3(x, 1.3, -6.0);
       trunk.material = poleMaterial;
       trunk.isPickable = false;
+      trunk.freezeWorldMatrix();
       this.mediumDetails.push(trunk);
       const crown = MeshBuilder.CreateSphere(`tree-crown-${x}`, { diameter: 2.2, segments: 8 }, this.scene);
       crown.position = new Vector3(x, 3.1, -6.0);
       crown.scaling = new Vector3(0.9, 1.25, 0.9);
       crown.material = foliage;
       crown.isPickable = false;
+      crown.freezeWorldMatrix();
       this.mediumDetails.push(crown);
       this.addShadowCaster(crown);
     }
@@ -220,6 +224,7 @@ export class VisualPolish {
     mesh.checkCollisions = false;
     mesh.receiveShadows = true;
     mesh.isPickable = false;
+    mesh.freezeWorldMatrix();
     return mesh;
   }
 
