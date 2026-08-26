@@ -20,6 +20,7 @@ import { PlayerCharacter } from "./character";
 import { MobileInput } from "./input";
 import { MissionDirector } from "./mission";
 import { NpcSystem, type AwarenessSnapshot } from "./npc";
+import { SecurityCameraSystem } from "./security";
 import { VisualPolish } from "./visuals";
 import {
   type GraphicsPreferences,
@@ -31,7 +32,7 @@ import {
 type GameMetadata = {
   intelId?: string;
   label?: string;
-  interaction?: "route-main" | "route-side" | "objective" | "extract";
+  interaction?: "route-main" | "route-side" | "objective" | "extract" | "camera-bypass";
 };
 
 export class GameRuntime {
@@ -41,6 +42,7 @@ export class GameRuntime {
   private readonly player: PlayerCharacter;
   private readonly visualPolish: VisualPolish;
   private readonly npcSystem: NpcSystem;
+  private readonly securitySystem: SecurityCameraSystem;
   private readonly audio = new GameAudio();
   private readonly input = new MobileInput();
   private readonly mission = new MissionDirector();
@@ -107,6 +109,11 @@ export class GameRuntime {
       () => this.mission.reportAlert(),
       (mesh) => this.addShadowCaster(mesh),
     );
+    this.securitySystem = new SecurityCameraSystem(this.scene, () => this.mission.reportAlert());
+    this.securitySystem.bypassPanel.metadata = {
+      label: "CCTV KONTROL PANELİ",
+      interaction: "camera-bypass",
+    } satisfies GameMetadata;
     this.updateThirdPersonCamera(0, true);
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
@@ -184,6 +191,7 @@ export class GameRuntime {
 
     this.visualPolish.applyProfile(profile);
     this.npcSystem.applyQuality(profile.tier);
+    this.securitySystem.applyQuality(profile.tier);
     document.body.classList.toggle("reduced-motion", preferences.reducedMotion);
     this.engine.resize();
     return { ...profile };
@@ -218,8 +226,10 @@ export class GameRuntime {
 
     const missionState = this.mission.snapshot().state;
     const awarenessActive = missionState === "INFILTRATE" || missionState === "EXTRACT";
-    const awareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
-    this.updateAwarenessHud(awareness, awarenessActive);
+    const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
+    const cameraAwareness = this.securitySystem.update(dt, this.player.position, this.player.collider, awarenessActive);
+    const strongestAwareness = cameraAwareness.meter > npcAwareness.meter ? cameraAwareness : npcAwareness;
+    this.updateAwarenessHud(strongestAwareness, awarenessActive);
 
     if (frame.observePressed) {
       this.observation = !this.observation;
@@ -304,7 +314,18 @@ export class GameRuntime {
       return;
     }
     const meta = mesh.metadata as GameMetadata;
-    const label = meta.interaction === "objective" ? "TESLİMAT KAYDINI DOĞRULA" : meta.interaction === "extract" ? "BÖLGEDEN AYRIL" : meta.interaction === "route-side" ? "YAN YAKLAŞIMI SEÇ" : "ANA YAKLAŞIMI SEÇ";
+    const state = this.mission.snapshot();
+    let label = "ETKİLEŞ";
+    if (meta.interaction === "objective") label = "TESLİMAT KAYDINI DOĞRULA";
+    if (meta.interaction === "extract") label = "BÖLGEDEN AYRIL";
+    if (meta.interaction === "route-side") label = "YAN YAKLAŞIMI SEÇ";
+    if (meta.interaction === "route-main") label = "ANA YAKLAŞIMI SEÇ";
+    if (meta.interaction === "camera-bypass") {
+      if (this.mission.hasOpportunity("camera_bypass")) label = "CCTV DEVRE DIŞI";
+      else if (!this.mission.hasIntel("market_camera")) label = "ÖNCE CCTV'Yİ RECON İLE TANIMLA";
+      else if (state.state !== "INFILTRATE" && state.state !== "EXTRACT") label = "CCTV FIRSATI HAZIR";
+      else label = "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK";
+    }
     this.interactionEl.textContent = label;
     this.interactionEl.classList.remove("hidden");
     if (!interactPressed) return;
@@ -313,6 +334,15 @@ export class GameRuntime {
     if (meta.interaction === "route-side") this.mission.chooseRoute("side");
     if (meta.interaction === "objective") this.mission.completeObjective();
     if (meta.interaction === "extract") this.mission.extract();
+    if (meta.interaction === "camera-bypass") {
+      const active = state.state === "INFILTRATE" || state.state === "EXTRACT";
+      if (
+        this.securitySystem.canBypass(this.mission.hasIntel("market_camera"), active)
+        && this.mission.useOpportunity("camera_bypass")
+      ) {
+        this.securitySystem.bypass();
+      }
+    }
   }
 
   private updateAwarenessHud(snapshot: AwarenessSnapshot, active: boolean): void {
@@ -322,14 +352,16 @@ export class GameRuntime {
     }
     this.awarenessEl.classList.remove("hidden");
     this.awarenessEl.dataset.state = snapshot.state;
-    this.awarenessLabelEl.textContent = snapshot.state === "NORMAL" ? "GÖRÜNMEZ" : snapshot.state === "CURIOUS" ? "MERAK" : snapshot.state === "SUSPICIOUS" ? "ŞÜPHE" : "ALARM";
+    const source = snapshot.label === "CCTV" ? "CCTV · " : "";
+    this.awarenessLabelEl.textContent = `${source}${snapshot.state === "NORMAL" ? "GÖRÜNMEZ" : snapshot.state === "CURIOUS" ? "MERAK" : snapshot.state === "SUSPICIOUS" ? "ŞÜPHE" : "ALARM"}`;
     this.awarenessFillEl.style.width = `${Math.round(snapshot.meter * 100)}%`;
   }
 
   private updateHud(): void {
     const state = this.mission.snapshot();
     this.objectiveEl.textContent = state.objective;
-    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal} · ${state.state}${state.rank ? ` · ${state.rank}` : ""}`;
+    const result = state.state === "COMPLETE" ? ` · ${state.rank} · SKOR ${state.score}` : "";
+    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal} · ${state.state}${result}`;
   }
 
   private buildWorld(): void {
