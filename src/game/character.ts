@@ -9,7 +9,6 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
-import "@babylonjs/loaders/glTF";
 
 export class PlayerCharacter {
   readonly collider: Mesh;
@@ -82,9 +81,9 @@ export class PlayerCharacter {
   }
 
   private async tryLoadRuntimeModel(): Promise<void> {
+    if (import.meta.env.VITE_CUMA_MODEL_PACKAGED !== "true") return;
     try {
-      const response = await fetch("./assets/characters/cuma_runtime.glb", { method: "HEAD", cache: "no-store" });
-      if (!response.ok) return;
+      await import("@babylonjs/loaders/glTF");
       const result = await SceneLoader.ImportMeshAsync("", "./assets/characters/", "cuma_runtime.glb", this.scene);
       const root = result.meshes[0];
       if (!root) return;
