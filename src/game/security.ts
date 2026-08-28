@@ -7,6 +7,7 @@ import {
   Scene,
   Vector3,
 } from "@babylonjs/core";
+import { isInCover } from "./cover";
 import { isCrouched } from "./input";
 import type { AwarenessSnapshot } from "./npc";
 
@@ -41,11 +42,13 @@ export class SecurityCameraSystem {
     this.senseTimer = 0.09;
 
     const route = document.body.dataset.route;
+    const covered = isInCover();
     const stanceScale = isCrouched() ? 0.72 : 1;
-    const detectionScale = (route === "main" ? 1.12 : route === "side" ? 0.72 : 1) * stanceScale;
-    const decayScale = route === "main" ? 0.9 : route === "side" ? 1.18 : 1;
+    const coverScale = covered ? 0.52 : 1;
+    const detectionScale = (route === "main" ? 1.12 : route === "side" ? 0.72 : 1) * stanceScale * coverScale;
+    const decayScale = (route === "main" ? 0.9 : route === "side" ? 1.18 : 1) * (covered ? 1.18 : 1);
     const origin = this.cameraMesh.position.add(new Vector3(0, 0.02, 0));
-    const playerEye = playerPosition.add(new Vector3(0, isCrouched() ? 0.3 : 0.55, 0));
+    const playerEye = playerPosition.add(new Vector3(0, isCrouched() ? 0.3 : covered ? 0.44 : 0.55, 0));
     const toPlayer = playerEye.subtract(origin);
     const distance = toPlayer.length();
     let visible = false;
