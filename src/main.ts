@@ -2,8 +2,10 @@ import "./styles.css";
 import "./briefing.css";
 import "./hud.css";
 import "./debrief.css";
+import "./mission-feedback.css";
 import { MissionDebrief } from "./game/debrief";
 import { InteractionPromptGuard } from "./game/interaction-prompt-guard";
+import { MissionFeedback } from "./game/mission-feedback";
 import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   type FpsSetting,
@@ -77,6 +79,7 @@ let hudQuietTimer: number | null = null;
 
 const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
 new InteractionPromptGuard(intelStatus, interactionStatus);
+new MissionFeedback(required<HTMLElement>("#objective"), intelStatus, awarenessStatus);
 new MissionDebrief(
   intelStatus,
   debriefOverlay,
