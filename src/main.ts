@@ -76,6 +76,15 @@ let runtime: RuntimeApi | null = null;
 let runtimeStarting = false;
 let activeHudMode: HudMode = "COMPACT";
 let hudQuietTimer: number | null = null;
+let settingsPauseActive = false;
+let debriefPauseActive = false;
+let lifecyclePauseActive = document.hidden;
+
+function syncRuntimePause(): void {
+  const shouldPause = settingsPauseActive || debriefPauseActive || lifecyclePauseActive;
+  runtime?.setPaused(shouldPause);
+  if (!shouldPause) void runtime?.unlockAudio();
+}
 
 const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
 new InteractionPromptGuard(intelStatus, interactionStatus);
@@ -87,8 +96,14 @@ new MissionDebrief(
   debriefScore,
   debriefIntel,
   debriefClose,
-  () => runtime?.setPaused(true),
-  () => runtime?.setPaused(false),
+  () => {
+    debriefPauseActive = true;
+    syncRuntimePause();
+  },
+  () => {
+    debriefPauseActive = false;
+    syncRuntimePause();
+  },
 );
 
 function clearHudQuietTimer(): void {
@@ -173,13 +188,15 @@ function openSettings(): void {
   wakeHud();
   settingsPanel.classList.remove("hidden");
   document.body.classList.add("settings-open");
-  runtime?.setPaused(true);
+  settingsPauseActive = true;
+  syncRuntimePause();
 }
 
 function closeSettings(): void {
   settingsPanel.classList.add("hidden");
   document.body.classList.remove("settings-open");
-  runtime?.setPaused(false);
+  settingsPauseActive = false;
+  syncRuntimePause();
   scheduleHudQuiet();
 }
 
@@ -202,6 +219,19 @@ window.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && !settingsPanel.classList.contains("hidden")) closeSettings();
 });
 
+document.addEventListener("visibilitychange", () => {
+  lifecyclePauseActive = document.hidden;
+  syncRuntimePause();
+});
+window.addEventListener("pagehide", () => {
+  lifecyclePauseActive = true;
+  syncRuntimePause();
+});
+window.addEventListener("pageshow", () => {
+  lifecyclePauseActive = document.hidden;
+  syncRuntimePause();
+});
+
 enter.addEventListener("click", async () => {
   if (runtimeStarting || runtime) return;
   runtimeStarting = true;
@@ -218,6 +248,7 @@ enter.addEventListener("click", async () => {
     activeRuntime.setLookSensitivity(gameplay.lookSensitivity);
     activeRuntime.setAudioVolume(gameplay.audioVolume);
     activeRuntime.start();
+    syncRuntimePause();
 
     boot.classList.add("hidden");
     hud.classList.remove("hidden");
