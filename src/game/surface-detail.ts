@@ -4,8 +4,21 @@ import {
   Scene,
   Texture,
 } from "@babylonjs/core";
+import type { ICanvasRenderingContext } from "@babylonjs/core";
 
 type SurfaceKind = "mineral" | "asphalt" | "wood" | "cardboard" | "foliage";
+
+/**
+ * Minimum drawing surface the procedural detail painters need.
+ *
+ * Babylon's `DynamicTexture.getContext()` returns `ICanvasRenderingContext`,
+ * which is a structural subset of the browser `CanvasRenderingContext2D`
+ * (its `fillStyle` cannot hold a `CanvasPattern`, for example). Narrowing to
+ * the two members we actually use keeps the painters assignable from both the
+ * Babylon context and a real browser 2D context, in the browser and inside the
+ * Capacitor WebView, without any cast.
+ */
+type SurfacePaintContext = Pick<ICanvasRenderingContext, "fillStyle" | "fillRect">;
 
 type SurfaceRule = {
   kind: SurfaceKind;
@@ -67,7 +80,7 @@ function buildDetailTexture(scene: Scene, name: string, kind: SurfaceKind): Dyna
   return texture;
 }
 
-function drawMineral(context: CanvasRenderingContext2D, random: () => number): void {
+function drawMineral(context: SurfacePaintContext, random: () => number): void {
   for (let i = 0; i < 360; i += 1) {
     const value = Math.round(195 + random() * 48);
     const alpha = 0.08 + random() * 0.13;
@@ -82,7 +95,7 @@ function drawMineral(context: CanvasRenderingContext2D, random: () => number): v
   }
 }
 
-function drawAsphalt(context: CanvasRenderingContext2D, random: () => number): void {
+function drawAsphalt(context: SurfacePaintContext, random: () => number): void {
   for (let i = 0; i < 520; i += 1) {
     const light = random() > 0.56;
     const value = light ? 228 : 178;
@@ -97,7 +110,7 @@ function drawAsphalt(context: CanvasRenderingContext2D, random: () => number): v
   }
 }
 
-function drawWood(context: CanvasRenderingContext2D, random: () => number): void {
+function drawWood(context: SurfacePaintContext, random: () => number): void {
   for (let y = 3; y < TEXTURE_SIZE; y += 7) {
     const offset = Math.floor(random() * 4) - 2;
     context.fillStyle = "rgba(112,112,112,0.13)";
@@ -112,7 +125,7 @@ function drawWood(context: CanvasRenderingContext2D, random: () => number): void
   }
 }
 
-function drawCardboard(context: CanvasRenderingContext2D, random: () => number): void {
+function drawCardboard(context: SurfacePaintContext, random: () => number): void {
   for (let i = 0; i < 150; i += 1) {
     const y = Math.floor(random() * TEXTURE_SIZE);
     context.fillStyle = `rgba(175,175,175,${0.03 + random() * 0.08})`;
@@ -120,7 +133,7 @@ function drawCardboard(context: CanvasRenderingContext2D, random: () => number):
   }
 }
 
-function drawFoliage(context: CanvasRenderingContext2D, random: () => number): void {
+function drawFoliage(context: SurfacePaintContext, random: () => number): void {
   for (let i = 0; i < 260; i += 1) {
     const value = Math.round(185 + random() * 65);
     context.fillStyle = `rgba(${value},${value},${value},${0.05 + random() * 0.12})`;
