@@ -10,6 +10,7 @@ export interface InputFrame {
 }
 
 export const RUN_SPEED_MULTIPLIER = 1.42;
+const WALK_INPUT_LIMIT = 0.82;
 
 let runHeld = false;
 let jumpQueued = false;
@@ -36,6 +37,7 @@ export class MobileInput {
   private lastLookX = 0;
   private lastLookY = 0;
   private runButton: HTMLButtonElement | null = null;
+  private jumpButton: HTMLButtonElement | null = null;
 
   constructor() {
     const joystick = document.querySelector<HTMLElement>("#joystick");
@@ -47,6 +49,7 @@ export class MobileInput {
     const interact = document.querySelector<HTMLButtonElement>("#interact");
     if (!joystick || !knob || !look || !run || !jump || !observe || !interact) throw new Error("Mobile controls missing");
     this.runButton = run;
+    this.jumpButton = jump;
 
     const updateStick = (event: PointerEvent) => {
       const rect = joystick.getBoundingClientRect();
@@ -135,11 +138,16 @@ export class MobileInput {
     run.addEventListener("pointercancel", releaseRun);
     run.addEventListener("lostpointercapture", releaseRun);
 
+    const releaseJump = () => jump.classList.remove("pressed");
     jump.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       jumpQueued = true;
-      if (typeof navigator.vibrate === "function") navigator.vibrate(12);
+      jump.classList.add("pressed");
+      jump.setPointerCapture(event.pointerId);
     });
+    jump.addEventListener("pointerup", releaseJump);
+    jump.addEventListener("pointercancel", releaseJump);
+    jump.addEventListener("lostpointercapture", releaseJump);
 
     observe.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
@@ -168,9 +176,20 @@ export class MobileInput {
   }
 
   frame(): InputFrame {
+    let frameMoveX = this.moveX;
+    let frameMoveY = this.moveY;
+    if (!runHeld) {
+      const magnitude = Math.hypot(frameMoveX, frameMoveY);
+      if (magnitude > WALK_INPUT_LIMIT) {
+        const scale = WALK_INPUT_LIMIT / magnitude;
+        frameMoveX *= scale;
+        frameMoveY *= scale;
+      }
+    }
+
     const frame = {
-      moveX: this.moveX,
-      moveY: this.moveY,
+      moveX: frameMoveX,
+      moveY: frameMoveY,
       lookX: this.lookX,
       lookY: this.lookY,
       observePressed: this.observePressed,
@@ -193,5 +212,6 @@ export class MobileInput {
     runHeld = false;
     jumpQueued = false;
     this.runButton?.classList.remove("pressed");
+    this.jumpButton?.classList.remove("pressed");
   }
 }

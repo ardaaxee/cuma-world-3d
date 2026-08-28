@@ -29,6 +29,7 @@ export class PlayerCharacter {
   private verticalVelocity = 0;
   private grounded = true;
   private groundGrace = 0.11;
+  private landingCameraKick = 0;
   private torsoPivot: TransformNode | null = null;
   private headPivot: TransformNode | null = null;
   private leftArmPivot: TransformNode | null = null;
@@ -80,7 +81,10 @@ export class PlayerCharacter {
 
   update(speed: number, dt: number, reducedMotion: boolean): void {
     this.applyJump(dt);
-    const sprinting = isRunHeld() && speed > 0.65;
+    this.landingCameraKick += (0 - this.landingCameraKick) * (1 - Math.exp(-15 * dt));
+    this.cameraTarget.position.y = 0.62 + this.landingCameraKick * (reducedMotion ? 0.22 : 1);
+
+    const sprinting = isRunHeld() && speed > 2.25;
     const effectiveSpeed = speed * (sprinting ? RUN_SPEED_MULTIPLIER : 1);
     this.speed += (effectiveSpeed - this.speed) * (1 - Math.exp(-10 * dt));
     this.syncShadowCasters(dt);
@@ -127,8 +131,10 @@ export class PlayerCharacter {
   }
 
   private applyJump(dt: number): void {
+    const wasGrounded = this.grounded;
     const groundedNow = this.detectGround();
     if (groundedNow && this.verticalVelocity <= 0) {
+      if (!wasGrounded) this.onLanded(Math.abs(this.verticalVelocity));
       this.grounded = true;
       this.groundGrace = 0.11;
       this.verticalVelocity = 0;
@@ -141,6 +147,7 @@ export class PlayerCharacter {
       this.verticalVelocity = 5.35;
       this.grounded = false;
       this.groundGrace = 0;
+      this.emitHaptic([14]);
     }
 
     if (this.grounded && this.verticalVelocity <= 0) return;
@@ -148,10 +155,25 @@ export class PlayerCharacter {
     this.collider.moveWithCollisions(new Vector3(0, this.verticalVelocity * dt, 0));
 
     if (this.verticalVelocity < 0 && this.detectGround()) {
+      const landingSpeed = Math.abs(this.verticalVelocity);
       this.verticalVelocity = 0;
       this.grounded = true;
       this.groundGrace = 0.11;
+      this.onLanded(landingSpeed);
     }
+  }
+
+  private onLanded(landingSpeed: number): void {
+    if (landingSpeed < 1.1) return;
+    const impact = Math.min(1, Math.max(0, (landingSpeed - 1.1) / 5.5));
+    this.landingCameraKick = -0.035 - impact * 0.055;
+    if (impact > 0.52) this.emitHaptic([18, 12, 24]);
+    else this.emitHaptic([16]);
+  }
+
+  private emitHaptic(pattern: number[]): void {
+    if (document.visibilityState !== "visible") return;
+    if (typeof navigator.vibrate === "function") navigator.vibrate(pattern);
   }
 
   private detectGround(): boolean {
