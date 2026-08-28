@@ -47,7 +47,8 @@ export class MobileInput {
     const jump = document.querySelector<HTMLButtonElement>("#jump");
     const observe = document.querySelector<HTMLButtonElement>("#observe");
     const interact = document.querySelector<HTMLButtonElement>("#interact");
-    if (!joystick || !knob || !look || !run || !jump || !observe || !interact) throw new Error("Mobile controls missing");
+    const interactionPrompt = document.querySelector<HTMLElement>("#interaction");
+    if (!joystick || !knob || !look || !run || !jump || !observe || !interact || !interactionPrompt) throw new Error("Mobile controls missing");
     this.runButton = run;
     this.jumpButton = jump;
 
@@ -157,6 +158,29 @@ export class MobileInput {
       event.stopPropagation();
       this.interactPressed = true;
     });
+
+    const syncContextActions = () => {
+      const actionable = interactionPrompt.dataset.actionable === "true"
+        && !interactionPrompt.classList.contains("hidden")
+        && interactionPrompt.style.display !== "none";
+      interact.disabled = !actionable;
+      interact.classList.toggle("available", actionable);
+      interact.setAttribute("aria-disabled", String(!actionable));
+      observe.classList.toggle("active", document.body.classList.contains("recon-active"));
+      observe.setAttribute("aria-pressed", String(document.body.classList.contains("recon-active")));
+    };
+    new MutationObserver(syncContextActions).observe(interactionPrompt, {
+      attributes: true,
+      attributeFilter: ["class", "data-actionable", "style"],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    new MutationObserver(syncContextActions).observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    syncContextActions();
 
     window.addEventListener("keydown", (event) => {
       if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
