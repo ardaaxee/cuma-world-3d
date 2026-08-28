@@ -36,6 +36,7 @@
         <div id="route-status" class="route-status hidden" data-route="none"></div>
       </section>
       <button id="settings-open" class="hud-icon" aria-label="Ayarları aç">⚙</button>
+      <div id="performance-meter" class="performance-meter hidden">-- FPS · RENDER --</div>
       <div class="focus-reticle" aria-hidden="true"></div>
       <div id="awareness" class="awareness hidden" data-state="NORMAL">
         <span id="awareness-label">NORMAL</span>
@@ -103,10 +104,18 @@
           <option value="QUALITY">KALİTE</option>
         </select>
       </label>
+      <label class="setting-row">
+        <span><strong>Dinamik kalite</strong><small>AUTO render ölçeğinde FPS düşerse çözünürlüğü kontrollü ayarlar</small></span>
+        <select id="graphics-adaptive-quality">
+          <option value="OFF">KAPALI</option>
+          <option value="BALANCED">DENGELİ</option>
+          <option value="AGGRESSIVE">AGRESİF</option>
+        </select>
+      </label>
 
       <div class="settings-section-title">GÖRÜNTÜ</div>
       <label class="setting-row">
-        <span><strong>Render ölçeği</strong><small>3D iç çözünürlük</small></span>
+        <span><strong>Render ölçeği</strong><small>3D iç çözünürlük; AUTO dinamik kaliteyi kullanabilir</small></span>
         <select id="graphics-resolution">
           <option value="AUTO">AUTO</option>
           <option value="0.6">%60</option>
@@ -124,6 +133,16 @@
           <option value="30">30 FPS</option>
           <option value="45">45 FPS</option>
           <option value="60">60 FPS</option>
+        </select>
+      </label>
+      <label class="setting-row">
+        <span><strong>Parlaklık</strong><small>Tone mapping exposure seviyesi</small></span>
+        <select id="graphics-brightness">
+          <option value="0.85">%85</option>
+          <option value="0.95">%95</option>
+          <option value="1">%100</option>
+          <option value="1.05">%105</option>
+          <option value="1.15">%115</option>
         </select>
       </label>
       <label class="setting-row">
@@ -181,6 +200,10 @@
         <span><strong>Vignette</strong><small>Kenar karartma</small></span>
         <input id="graphics-vignette" type="checkbox" />
       </label>
+      <label class="setting-row toggle-row">
+        <span><strong>FPS göstergesi</strong><small>Canlı frame-time ve efektif render ölçeği</small></span>
+        <input id="graphics-fps-counter" type="checkbox" />
+      </label>
       <div class="setting-row static-row unsupported-row">
         <span><strong>Ray tracing / DLSS</strong><small>Android WebGL runtime bu teknolojileri sağlamıyor</small></span>
         <b>DESTEKLENMİYOR</b>
@@ -223,6 +246,10 @@
 
       <div class="settings-section-title">CİHAZ / DESTEK</div>
       <div id="graphics-capabilities" class="graphics-capabilities">Cihaz özellikleri okunuyor…</div>
+      <div class="setting-row static-row">
+        <span><strong>WebGL recovery</strong><small>GPU context kaybında pause + profil yeniden uygulama</small></span>
+        <b>AKTİF</b>
+      </div>
       <div class="setting-row static-row">
         <span><strong>Android yönü</strong><small>Telefonu iki yatay yönde çevirebilirsin</small></span>
         <b>YATAY</b>

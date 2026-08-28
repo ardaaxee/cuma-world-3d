@@ -11,6 +11,8 @@ import { MissionFeedback } from "./game/mission-feedback";
 import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   DEFAULT_GRAPHICS,
+  type AdaptiveQualitySetting,
+  type BrightnessSetting,
   type ColorGradeSetting,
   type FilmGrainSetting,
   type FpsSetting,
@@ -61,18 +63,22 @@ const settingsClose = required<HTMLButtonElement>("#settings-close");
 const settingsPanel = required<HTMLElement>("#settings-panel");
 const tierSelect = required<HTMLSelectElement>("#graphics-tier");
 const powerModeSelect = required<HTMLSelectElement>("#graphics-power-mode");
+const adaptiveQualitySelect = required<HTMLSelectElement>("#graphics-adaptive-quality");
 const resolutionSelect = required<HTMLSelectElement>("#graphics-resolution");
 const fpsSelect = required<HTMLSelectElement>("#graphics-fps");
 const shadowsSelect = required<HTMLSelectElement>("#graphics-shadows");
 const shadowQualitySelect = required<HTMLSelectElement>("#graphics-shadow-quality");
 const viewDistanceSelect = required<HTMLSelectElement>("#graphics-view-distance");
 const colorGradeSelect = required<HTMLSelectElement>("#graphics-color-grade");
+const brightnessSelect = required<HTMLSelectElement>("#graphics-brightness");
 const filmGrainSelect = required<HTMLSelectElement>("#graphics-film-grain");
 const vignetteToggle = required<HTMLInputElement>("#graphics-vignette");
+const fpsCounterToggle = required<HTMLInputElement>("#graphics-fps-counter");
 const reducedMotion = required<HTMLInputElement>("#reduced-motion");
 const graphicsStatus = required<HTMLElement>("#graphics-status");
 const graphicsCapabilities = required<HTMLElement>("#graphics-capabilities");
 const graphicsReset = required<HTMLButtonElement>("#graphics-reset");
+const performanceMeter = required<HTMLElement>("#performance-meter");
 const lookSensitivitySelect = required<HTMLSelectElement>("#look-sensitivity");
 const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
 const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
@@ -95,9 +101,11 @@ let hudQuietTimer: number | null = null;
 let settingsPauseActive = false;
 let debriefPauseActive = false;
 let lifecyclePauseActive = document.hidden;
+let graphicsContextPauseActive = false;
+let performanceGuard: AdaptivePerformanceGuard | null = null;
 
 function syncRuntimePause(): void {
-  const shouldPause = settingsPauseActive || debriefPauseActive || lifecyclePauseActive;
+  const shouldPause = settingsPauseActive || debriefPauseActive || lifecyclePauseActive || graphicsContextPauseActive;
   runtime?.setPaused(shouldPause);
   if (!shouldPause) void runtime?.unlockAudio();
 }
@@ -148,14 +156,17 @@ function scheduleHudQuiet(): void {
 function syncGraphicsControls(preferences: GraphicsPreferences): void {
   tierSelect.value = preferences.tier;
   powerModeSelect.value = preferences.powerMode;
+  adaptiveQualitySelect.value = preferences.adaptiveQuality;
   fpsSelect.value = String(preferences.fps);
   resolutionSelect.value = String(preferences.resolution);
   shadowsSelect.value = preferences.shadows;
   shadowQualitySelect.value = preferences.shadowQuality;
   viewDistanceSelect.value = preferences.viewDistance;
   colorGradeSelect.value = preferences.colorGrade;
+  brightnessSelect.value = String(preferences.brightness);
   filmGrainSelect.value = preferences.filmGrain;
   vignetteToggle.checked = preferences.vignette;
+  fpsCounterToggle.checked = preferences.showFps;
   reducedMotion.checked = preferences.reducedMotion;
 }
 
@@ -163,14 +174,17 @@ function readGraphicsPreferences(): GraphicsPreferences {
   return {
     tier: tierSelect.value as GraphicsTier,
     powerMode: powerModeSelect.value as PowerModeSetting,
+    adaptiveQuality: adaptiveQualitySelect.value as AdaptiveQualitySetting,
     fps: (fpsSelect.value === "AUTO" ? "AUTO" : Number(fpsSelect.value)) as FpsSetting,
     resolution: (resolutionSelect.value === "AUTO" ? "AUTO" : Number(resolutionSelect.value)) as ResolutionSetting,
     shadows: shadowsSelect.value as ShadowSetting,
     shadowQuality: shadowQualitySelect.value as ShadowQualitySetting,
     viewDistance: viewDistanceSelect.value as ViewDistanceSetting,
     colorGrade: colorGradeSelect.value as ColorGradeSetting,
+    brightness: Number(brightnessSelect.value) as BrightnessSetting,
     filmGrain: filmGrainSelect.value as FilmGrainSetting,
     vignette: vignetteToggle.checked,
+    showFps: fpsCounterToggle.checked,
     reducedMotion: reducedMotion.checked,
   };
 }
@@ -181,11 +195,13 @@ function applyVisualEffects(profile: ResolvedGraphicsProfile): void {
   document.body.classList.toggle("film-grain-high", profile.filmGrain === "HIGH");
   document.body.dataset.grade = profile.colorGrade.toLowerCase();
   document.body.dataset.power = profile.powerMode.toLowerCase();
+  performanceMeter.classList.toggle("hidden", !profile.showFps);
 }
 
-function renderGraphicsStatus(profile: ResolvedGraphicsProfile): void {
+function renderGraphicsStatus(profile: ResolvedGraphicsProfile, adaptive = false): void {
   const shadow = profile.shadowsEnabled ? (profile.softShadows ? "SOFT" : "HARD") : "OFF";
-  graphicsStatus.textContent = `${profile.tier} · ${profile.powerMode} · RENDER %${Math.round(profile.renderScale * 100)} · ${profile.targetFps} FPS · SHADOW ${shadow} · VIEW ${profile.cameraFar}M · ${profile.colorGrade}`;
+  const dynamic = adaptive ? " · DYNAMIC" : "";
+  graphicsStatus.textContent = `${profile.tier} · ${profile.powerMode} · RENDER %${Math.round(profile.renderScale * 100)}${dynamic} · ${profile.targetFps} FPS · SHADOW ${shadow} · VIEW ${profile.cameraFar}M · ${profile.colorGrade}`;
 }
 
 function renderGraphicsCapabilities(): void {
@@ -196,7 +212,7 @@ function renderGraphicsCapabilities(): void {
   const cores = navigator.hardwareConcurrency || 0;
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
   const memoryLabel = memory ? `${memory}GB RAM-IPUCU` : "RAM BİLİNMİYOR";
-  graphicsCapabilities.textContent = `${api} · ${cores || "?"} THREAD · ${memoryLabel} · PBR/TONE MAPPING AÇIK · HW AA AÇIK`;
+  graphicsCapabilities.textContent = `${api} · ${cores || "?"} THREAD · ${memoryLabel} · PBR/TONE MAPPING · HW AA · CONTEXT RECOVERY`;
 }
 
 function applyGraphicsPreferences(): void {
@@ -205,6 +221,7 @@ function applyGraphicsPreferences(): void {
   const profile = runtime ? runtime.applyGraphicsPreferences(preferences) : resolveGraphicsProfile(preferences);
   applyVisualEffects(profile);
   renderGraphicsStatus(profile);
+  performanceGuard?.configure(preferences, profile);
 }
 
 function syncGameplayControls(preferences: GameplayPreferences): void {
@@ -249,10 +266,78 @@ function closeSettings(): void {
   scheduleHudQuiet();
 }
 
+class AdaptivePerformanceGuard {
+  private preferences = { ...DEFAULT_GRAPHICS };
+  private baseProfile = resolveGraphicsProfile(this.preferences);
+  private effectiveScale = this.baseProfile.renderScale;
+  private frames = 0;
+  private windowStarted = performance.now();
+  private healthyWindows = 0;
+  private running = true;
+
+  constructor() {
+    requestAnimationFrame((time) => this.sample(time));
+  }
+
+  configure(preferences: GraphicsPreferences, profile: ResolvedGraphicsProfile): void {
+    this.preferences = { ...preferences };
+    this.baseProfile = profile;
+    this.effectiveScale = profile.renderScale;
+    this.healthyWindows = 0;
+    this.frames = 0;
+    this.windowStarted = performance.now();
+  }
+
+  private sample(now: number): void {
+    if (!this.running) return;
+    this.frames += 1;
+    const elapsed = now - this.windowStarted;
+    if (elapsed >= 2500) {
+      const observedFps = Math.max(1, Math.round((this.frames * 1000) / elapsed));
+      this.frames = 0;
+      this.windowStarted = now;
+      performanceMeter.textContent = `${observedFps} FPS · RENDER %${Math.round(this.effectiveScale * 100)}`;
+      this.adjust(observedFps);
+    }
+    requestAnimationFrame((time) => this.sample(time));
+  }
+
+  private adjust(observedFps: number): void {
+    if (!runtime || document.hidden || settingsPauseActive || this.preferences.resolution !== "AUTO" || this.preferences.adaptiveQuality === "OFF") return;
+    const target = this.baseProfile.targetFps;
+    const aggressive = this.preferences.adaptiveQuality === "AGGRESSIVE";
+    const lowThreshold = target * (aggressive ? 0.9 : 0.8);
+    const healthyThreshold = target * 0.97;
+    let nextScale = this.effectiveScale;
+
+    if (observedFps < lowThreshold) {
+      this.healthyWindows = 0;
+      nextScale = Math.max(0.6, Math.round((this.effectiveScale - (aggressive ? 0.1 : 0.05)) * 20) / 20);
+    } else if (observedFps >= healthyThreshold) {
+      this.healthyWindows += 1;
+      const windowsNeeded = aggressive ? 2 : 3;
+      if (this.healthyWindows >= windowsNeeded) {
+        this.healthyWindows = 0;
+        nextScale = Math.min(this.baseProfile.renderScale, Math.round((this.effectiveScale + 0.05) * 20) / 20);
+      }
+    } else {
+      this.healthyWindows = 0;
+    }
+
+    if (Math.abs(nextScale - this.effectiveScale) < 0.001) return;
+    this.effectiveScale = nextScale;
+    const transient = { ...this.preferences, resolution: nextScale as ResolutionSetting };
+    const profile = runtime.applyGraphicsPreferences(transient);
+    renderGraphicsStatus(profile, true);
+  }
+}
+
 const initialGraphics = loadGraphicsPreferences();
 syncGraphicsControls(initialGraphics);
 renderGraphicsCapabilities();
 applyGraphicsPreferences();
+performanceGuard = new AdaptivePerformanceGuard();
+performanceGuard.configure(initialGraphics, resolveGraphicsProfile(initialGraphics));
 const gameplayPreferences = loadGameplayPreferences();
 syncGameplayControls(gameplayPreferences);
 applyGameplayPreferences();
@@ -260,14 +345,17 @@ applyGameplayPreferences();
 for (const element of [
   tierSelect,
   powerModeSelect,
+  adaptiveQualitySelect,
   resolutionSelect,
   fpsSelect,
   shadowsSelect,
   shadowQualitySelect,
   viewDistanceSelect,
   colorGradeSelect,
+  brightnessSelect,
   filmGrainSelect,
   vignetteToggle,
+  fpsCounterToggle,
   reducedMotion,
 ]) {
   element.addEventListener("change", applyGraphicsPreferences);
@@ -300,6 +388,22 @@ window.addEventListener("pageshow", () => {
   lifecyclePauseActive = document.hidden;
   syncRuntimePause();
 });
+canvas.addEventListener("webglcontextlost", (event) => {
+  event.preventDefault();
+  graphicsContextPauseActive = true;
+  performanceMeter.textContent = "GPU CONTEXT LOST";
+  graphicsStatus.textContent = "GPU CONTEXT KAYBI · TOPARLANMA BEKLENİYOR";
+  syncRuntimePause();
+});
+canvas.addEventListener("webglcontextrestored", () => {
+  graphicsContextPauseActive = false;
+  const preferences = readGraphicsPreferences();
+  const profile = runtime ? runtime.applyGraphicsPreferences(preferences) : resolveGraphicsProfile(preferences);
+  applyVisualEffects(profile);
+  renderGraphicsStatus(profile);
+  performanceGuard?.configure(preferences, profile);
+  syncRuntimePause();
+});
 
 enter.addEventListener("click", async () => {
   if (runtimeStarting || runtime) return;
@@ -312,7 +416,9 @@ enter.addEventListener("click", async () => {
     const { GameRuntime } = await import("./game/runtime11");
     const activeRuntime = new GameRuntime(canvas);
     runtime = activeRuntime;
-    activeRuntime.applyGraphicsPreferences(readGraphicsPreferences());
+    const graphics = readGraphicsPreferences();
+    const profile = activeRuntime.applyGraphicsPreferences(graphics);
+    performanceGuard?.configure(graphics, profile);
     const gameplay = readGameplayPreferences();
     activeRuntime.setLookSensitivity(gameplay.lookSensitivity);
     activeRuntime.setAudioVolume(gameplay.audioVolume);
