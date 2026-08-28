@@ -3,6 +3,7 @@ import "./briefing.css";
 import "./hud.css";
 import "./debrief.css";
 import "./mission-feedback.css";
+import "./route-status.css";
 import { MissionDebrief } from "./game/debrief";
 import { InteractionPromptGuard } from "./game/interaction-prompt-guard";
 import { MissionFeedback } from "./game/mission-feedback";

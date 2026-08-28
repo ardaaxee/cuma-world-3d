@@ -157,7 +157,25 @@ export class MissionDirector {
   }
 
   private syncRouteSignal(): void {
-    document.body.dataset.route = this.selectedRoute || "none";
+    const route = this.selectedRoute || "none";
+    document.body.dataset.route = route;
+    const status = document.querySelector<HTMLElement>("#route-status");
+    if (!status) return;
+    if (this.selectedRoute === "main") {
+      status.textContent = "ANA ROTA · CCTV RİSKİ";
+      status.dataset.route = "main";
+      status.classList.remove("hidden");
+      return;
+    }
+    if (this.selectedRoute === "side") {
+      status.textContent = "YAN ROTA · ARKA DEVRİYE";
+      status.dataset.route = "side";
+      status.classList.remove("hidden");
+      return;
+    }
+    status.textContent = "";
+    status.dataset.route = "none";
+    status.classList.add("hidden");
   }
 
   private persist(): void {
