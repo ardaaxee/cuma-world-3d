@@ -1,10 +1,12 @@
 import {
   Color3,
+  DynamicTexture,
   Mesh,
   MeshBuilder,
   PBRMaterial,
   PointLight,
   Scene,
+  StandardMaterial,
   Vector3,
 } from "@babylonjs/core";
 import type { ResolvedGraphicsProfile } from "./graphics";
@@ -45,6 +47,8 @@ export class VisualPolish {
     const cardboard = this.material("market-cardboard", new Color3(0.45, 0.32, 0.18), 0.9, 0.0);
     const redAccent = this.material("market-red-accent", new Color3(0.48, 0.085, 0.06), 0.54, 0.04);
     const lightPanel = this.material("market-light-panel", new Color3(0.82, 0.73, 0.55), 0.48, 0.0);
+    const produceGreen = this.material("market-produce-green", new Color3(0.18, 0.38, 0.11), 0.88, 0.0);
+    const produceOrange = this.material("market-produce-orange", new Color3(0.68, 0.28, 0.055), 0.82, 0.0);
     lightPanel.emissiveColor = new Color3(0.68, 0.52, 0.29);
 
     const ceilingPanel = this.box("market-ceiling-polish", new Vector3(0, 4.0, 8.2), new Vector3(14.4, 0.12, 11.3), ceiling);
@@ -107,7 +111,54 @@ export class VisualPolish {
     const signBack = this.box("market-sign-polish-back", new Vector3(0, 3.56, 0.9), new Vector3(5.2, 0.9, 0.08), darkMetal);
     const signCore = this.box("market-sign-polish-core", new Vector3(0, 3.56, 0.84), new Vector3(4.45, 0.53, 0.04), redAccent);
     redAccent.emissiveColor = new Color3(0.13, 0.012, 0.008);
-    this.mediumDetails.push(signBack, signCore);
+    const wordmark = this.labelPlane(
+      "market-wordmark",
+      "FRESH MARKET",
+      new Vector3(0, 3.56, 0.805),
+      4.1,
+      0.42,
+      88,
+      "#f5ead7",
+      "transparent",
+    );
+    this.mediumDetails.push(signBack, signCore, wordmark);
+
+    const address = this.labelPlane(
+      "market-address",
+      "27",
+      new Vector3(-2.72, 2.86, 1.72),
+      0.38,
+      0.28,
+      82,
+      "#e9ddc5",
+      "#15191f",
+    );
+    this.mediumDetails.push(address);
+
+    const openSign = this.labelPlane(
+      "market-open-sign",
+      "OPEN",
+      new Vector3(1.55, 2.35, 1.69),
+      0.92,
+      0.36,
+      76,
+      "#f5e7ce",
+      "#7b1914",
+    );
+    this.highDetails.push(openSign);
+
+    const deliverySign = this.labelPlane(
+      "market-delivery-sign",
+      "DELIVERY",
+      new Vector3(6.995, 2.45, 10.2),
+      1.35,
+      0.38,
+      64,
+      "#ede3d0",
+      "#171b20",
+      Math.PI / 2,
+    );
+    this.highDetails.push(deliverySign);
 
     for (const x of [-4.8, -2.4, 2.4, 4.8]) {
       const awningRib = this.box(`awning-rib-${x}`, new Vector3(x, 3.43, 0.72), new Vector3(0.07, 0.1, 1.25), darkMetal);
@@ -138,6 +189,25 @@ export class VisualPolish {
         this.addShadowCaster(crate);
       }
     }
+
+    for (const [standX, material] of [[-4.9, produceGreen], [-3.7, produceOrange]] as const) {
+      const stand = this.box(`produce-stand-${standX}`, new Vector3(standX, 0.56, 4.15), new Vector3(0.95, 0.82, 1.0), crateWood);
+      this.highDetails.push(stand);
+      this.addShadowCaster(stand);
+      for (let row = 0; row < 2; row += 1) {
+        for (let column = 0; column < 3; column += 1) {
+          const produce = MeshBuilder.CreateSphere(`produce-${standX}-${row}-${column}`, { diameter: 0.18, segments: 6 }, this.scene);
+          produce.position = new Vector3(standX - 0.27 + column * 0.27, 1.04 + row * 0.16, 3.93 + row * 0.22);
+          produce.material = material;
+          produce.isPickable = false;
+          produce.freezeWorldMatrix();
+          this.highDetails.push(produce);
+        }
+      }
+    }
+
+    const entranceMat = this.box("market-entrance-mat", new Vector3(0, 0.13, 1.15), new Vector3(3.2, 0.025, 1.0), darkMetal);
+    this.mediumDetails.push(entranceMat);
 
     const loadingHeader = this.box("loading-door-header", new Vector3(6.84, 3.35, 10.2), new Vector3(0.12, 0.26, 3.15), redAccent);
     this.highDetails.push(loadingHeader);
@@ -217,6 +287,37 @@ export class VisualPolish {
     const utilityDoor = this.box("street-utility-door", new Vector3(-10.15, 0.8, 0.78), new Vector3(0.68, 1.16, 0.03), poleMaterial);
     this.highDetails.push(utility, utilityDoor);
     this.addShadowCaster(utility);
+  }
+
+  private labelPlane(
+    name: string,
+    text: string,
+    position: Vector3,
+    width: number,
+    height: number,
+    fontSize: number,
+    color: string,
+    background: string,
+    rotationY = 0,
+  ): Mesh {
+    const texture = new DynamicTexture(`${name}-texture`, { width: 1024, height: 256 }, this.scene, false);
+    texture.hasAlpha = true;
+    texture.drawText(text, null, 170, `700 ${fontSize}px Arial`, color, background, true, true);
+
+    const material = new StandardMaterial(`${name}-material`, this.scene);
+    material.diffuseTexture = texture;
+    material.emissiveTexture = texture;
+    material.useAlphaFromDiffuseTexture = true;
+    material.backFaceCulling = false;
+    material.disableLighting = true;
+
+    const plane = MeshBuilder.CreatePlane(name, { width, height }, this.scene);
+    plane.position.copyFrom(position);
+    plane.rotation.y = rotationY;
+    plane.material = material;
+    plane.isPickable = false;
+    plane.freezeWorldMatrix();
+    return plane;
   }
 
   private box(name: string, position: Vector3, size: Vector3, material: PBRMaterial): Mesh {
