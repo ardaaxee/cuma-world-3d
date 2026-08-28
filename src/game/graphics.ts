@@ -1,13 +1,24 @@
 export type GraphicsTier = "AUTO" | "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
 export type FpsSetting = "AUTO" | 30 | 45 | 60;
-export type ResolutionSetting = "AUTO" | 0.7 | 0.85 | 1;
+export type ResolutionSetting = "AUTO" | 0.6 | 0.7 | 0.8 | 0.85 | 0.9 | 1;
 export type ShadowSetting = "AUTO" | "OFF" | "ON";
+export type ShadowQualitySetting = "AUTO" | "HARD" | "SOFT";
+export type ViewDistanceSetting = "AUTO" | "NEAR" | "MEDIUM" | "FAR" | "MAX";
+export type ColorGradeSetting = "CINEMATIC" | "NEUTRAL" | "WARM" | "CRISP";
+export type PowerModeSetting = "BATTERY" | "BALANCED" | "PERFORMANCE" | "QUALITY";
+export type FilmGrainSetting = "OFF" | "LOW" | "HIGH";
 
 export interface GraphicsPreferences {
   tier: GraphicsTier;
   fps: FpsSetting;
   resolution: ResolutionSetting;
   shadows: ShadowSetting;
+  shadowQuality: ShadowQualitySetting;
+  viewDistance: ViewDistanceSetting;
+  colorGrade: ColorGradeSetting;
+  powerMode: PowerModeSetting;
+  filmGrain: FilmGrainSetting;
+  vignette: boolean;
   reducedMotion: boolean;
 }
 
@@ -21,7 +32,13 @@ export interface ResolvedGraphicsProfile {
   exposure: number;
   contrast: number;
   cameraFar: number;
+  colorGrade: ColorGradeSetting;
+  powerMode: PowerModeSetting;
+  filmGrain: FilmGrainSetting;
+  vignette: boolean;
 }
+
+type BaseProfile = Omit<ResolvedGraphicsProfile, "colorGrade" | "powerMode" | "filmGrain" | "vignette">;
 
 const STORAGE_KEY = "cuma_world_graphics_v1";
 
@@ -30,6 +47,12 @@ export const DEFAULT_GRAPHICS: GraphicsPreferences = {
   fps: "AUTO",
   resolution: "AUTO",
   shadows: "AUTO",
+  shadowQuality: "AUTO",
+  viewDistance: "AUTO",
+  colorGrade: "CINEMATIC",
+  powerMode: "BALANCED",
+  filmGrain: "LOW",
+  vignette: true,
   reducedMotion: false,
 };
 
@@ -42,11 +65,31 @@ function isFpsSetting(value: unknown): value is FpsSetting {
 }
 
 function isResolutionSetting(value: unknown): value is ResolutionSetting {
-  return value === "AUTO" || value === 0.7 || value === 0.85 || value === 1;
+  return value === "AUTO" || value === 0.6 || value === 0.7 || value === 0.8 || value === 0.85 || value === 0.9 || value === 1;
 }
 
 function isShadowSetting(value: unknown): value is ShadowSetting {
   return value === "AUTO" || value === "OFF" || value === "ON";
+}
+
+function isShadowQualitySetting(value: unknown): value is ShadowQualitySetting {
+  return value === "AUTO" || value === "HARD" || value === "SOFT";
+}
+
+function isViewDistanceSetting(value: unknown): value is ViewDistanceSetting {
+  return value === "AUTO" || value === "NEAR" || value === "MEDIUM" || value === "FAR" || value === "MAX";
+}
+
+function isColorGradeSetting(value: unknown): value is ColorGradeSetting {
+  return value === "CINEMATIC" || value === "NEUTRAL" || value === "WARM" || value === "CRISP";
+}
+
+function isPowerModeSetting(value: unknown): value is PowerModeSetting {
+  return value === "BATTERY" || value === "BALANCED" || value === "PERFORMANCE" || value === "QUALITY";
+}
+
+function isFilmGrainSetting(value: unknown): value is FilmGrainSetting {
+  return value === "OFF" || value === "LOW" || value === "HIGH";
 }
 
 export function loadGraphicsPreferences(): GraphicsPreferences {
@@ -59,6 +102,12 @@ export function loadGraphicsPreferences(): GraphicsPreferences {
       fps: isFpsSetting(value.fps) ? value.fps : DEFAULT_GRAPHICS.fps,
       resolution: isResolutionSetting(value.resolution) ? value.resolution : DEFAULT_GRAPHICS.resolution,
       shadows: isShadowSetting(value.shadows) ? value.shadows : DEFAULT_GRAPHICS.shadows,
+      shadowQuality: isShadowQualitySetting(value.shadowQuality) ? value.shadowQuality : DEFAULT_GRAPHICS.shadowQuality,
+      viewDistance: isViewDistanceSetting(value.viewDistance) ? value.viewDistance : DEFAULT_GRAPHICS.viewDistance,
+      colorGrade: isColorGradeSetting(value.colorGrade) ? value.colorGrade : DEFAULT_GRAPHICS.colorGrade,
+      powerMode: isPowerModeSetting(value.powerMode) ? value.powerMode : DEFAULT_GRAPHICS.powerMode,
+      filmGrain: isFilmGrainSetting(value.filmGrain) ? value.filmGrain : DEFAULT_GRAPHICS.filmGrain,
+      vignette: typeof value.vignette === "boolean" ? value.vignette : DEFAULT_GRAPHICS.vignette,
       reducedMotion: typeof value.reducedMotion === "boolean" ? value.reducedMotion : DEFAULT_GRAPHICS.reducedMotion,
     };
   } catch {
@@ -88,7 +137,7 @@ function resolveAutoTier(): Exclude<GraphicsTier, "AUTO"> {
   return "MEDIUM";
 }
 
-const BASE_PROFILES: Record<Exclude<GraphicsTier, "AUTO">, ResolvedGraphicsProfile> = {
+const BASE_PROFILES: Record<Exclude<GraphicsTier, "AUTO">, BaseProfile> = {
   LOW: {
     tier: "LOW",
     renderScale: 0.68,
@@ -135,13 +184,78 @@ const BASE_PROFILES: Record<Exclude<GraphicsTier, "AUTO">, ResolvedGraphicsProfi
   },
 };
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export function resolveGraphicsProfile(preferences: GraphicsPreferences): ResolvedGraphicsProfile {
   const tier = preferences.tier === "AUTO" ? resolveAutoTier() : preferences.tier;
   const base = BASE_PROFILES[tier];
+  let renderScale = base.renderScale;
+  let targetFps: 30 | 45 | 60 = base.targetFps;
+  let fogEnd = base.fogEnd;
+  let cameraFar = base.cameraFar;
+  let exposure = base.exposure;
+  let contrast = base.contrast;
+
+  if (preferences.powerMode === "BATTERY") {
+    renderScale -= 0.12;
+    targetFps = 30;
+    fogEnd *= 0.88;
+    cameraFar *= 0.86;
+  } else if (preferences.powerMode === "PERFORMANCE") {
+    renderScale -= 0.06;
+    targetFps = 60;
+  } else if (preferences.powerMode === "QUALITY") {
+    renderScale += 0.04;
+    fogEnd += 8;
+    cameraFar += 10;
+  }
+
+  if (preferences.resolution !== "AUTO") renderScale = preferences.resolution;
+  if (preferences.fps !== "AUTO") targetFps = preferences.fps;
+
+  if (preferences.viewDistance === "NEAR") {
+    fogEnd = 68;
+    cameraFar = 95;
+  } else if (preferences.viewDistance === "MEDIUM") {
+    fogEnd = 90;
+    cameraFar = 120;
+  } else if (preferences.viewDistance === "FAR") {
+    fogEnd = 118;
+    cameraFar = 150;
+  } else if (preferences.viewDistance === "MAX") {
+    fogEnd = 145;
+    cameraFar = 180;
+  }
+
+  if (preferences.colorGrade === "NEUTRAL") {
+    exposure = 1;
+    contrast = 1.02;
+  } else if (preferences.colorGrade === "WARM") {
+    exposure = base.exposure + 0.03;
+    contrast = base.contrast + 0.01;
+  } else if (preferences.colorGrade === "CRISP") {
+    exposure = base.exposure + 0.01;
+    contrast = Math.max(base.contrast, 1.12);
+  }
+
+  const shadowsEnabled = preferences.shadows === "AUTO" ? base.shadowsEnabled : preferences.shadows === "ON";
+  const softShadows = shadowsEnabled && (preferences.shadowQuality === "AUTO" ? base.softShadows : preferences.shadowQuality === "SOFT");
+
   return {
-    ...base,
-    renderScale: preferences.resolution === "AUTO" ? base.renderScale : preferences.resolution,
-    targetFps: preferences.fps === "AUTO" ? base.targetFps : preferences.fps,
-    shadowsEnabled: preferences.shadows === "AUTO" ? base.shadowsEnabled : preferences.shadows === "ON",
+    tier,
+    renderScale: Math.round(clamp(renderScale, 0.6, 1) * 100) / 100,
+    targetFps,
+    shadowsEnabled,
+    softShadows,
+    fogEnd: Math.round(fogEnd),
+    exposure: Math.round(exposure * 100) / 100,
+    contrast: Math.round(contrast * 100) / 100,
+    cameraFar: Math.round(cameraFar),
+    colorGrade: preferences.colorGrade,
+    powerMode: preferences.powerMode,
+    filmGrain: preferences.filmGrain,
+    vignette: preferences.vignette,
   };
 }
