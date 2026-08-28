@@ -1,3 +1,5 @@
+import { resetMissionProgress } from "./mission";
+
 export class MissionDebrief {
   private shownForResult = "";
   private readonly observer: MutationObserver;
@@ -17,6 +19,15 @@ export class MissionDebrief {
     closeButton.addEventListener("click", () => {
       this.overlay.classList.add("hidden");
       this.onClose();
+    });
+
+    const replayButton = document.querySelector<HTMLButtonElement>("#debrief-replay");
+    if (!replayButton) throw new Error("CUMA WORLD missing mission replay button");
+    replayButton.addEventListener("click", () => {
+      replayButton.disabled = true;
+      replayButton.textContent = "YENİDEN BAŞLATILIYOR…";
+      resetMissionProgress();
+      window.location.reload();
     });
     this.refresh();
   }

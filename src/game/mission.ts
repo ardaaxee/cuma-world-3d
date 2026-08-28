@@ -23,6 +23,14 @@ type StoredMission = {
 
 const SAVE_KEY = "cuma_world_android_save_v100";
 
+export function resetMissionProgress(): void {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    // Storage failure must never prevent returning to a fresh runtime.
+  }
+}
+
 export class MissionDirector {
   private state: MissionState = "BRIEFING";
   private readonly intel = new Set<string>();
