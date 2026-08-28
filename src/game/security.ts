@@ -39,6 +39,9 @@ export class SecurityCameraSystem {
     if (this.senseTimer > 0) return { state: this.state(), meter: this.awareness, label: "CCTV" };
     this.senseTimer = 0.09;
 
+    const route = document.body.dataset.route;
+    const detectionScale = route === "main" ? 1.12 : route === "side" ? 0.72 : 1;
+    const decayScale = route === "main" ? 0.9 : route === "side" ? 1.18 : 1;
     const origin = this.cameraMesh.position.add(new Vector3(0, 0.02, 0));
     const playerEye = playerPosition.add(new Vector3(0, 0.55, 0));
     const toPlayer = playerEye.subtract(origin);
@@ -56,8 +59,8 @@ export class SecurityCameraSystem {
       }
     }
 
-    if (visible) this.awareness = Math.min(1, this.awareness + 0.09 * 0.95);
-    else this.awareness = Math.max(0, this.awareness - 0.09 * 0.62);
+    if (visible) this.awareness = Math.min(1, this.awareness + 0.09 * 0.95 * detectionScale);
+    else this.awareness = Math.max(0, this.awareness - 0.09 * 0.62 * decayScale);
 
     if (this.awareness >= 0.98 && !this.alertedCycle) {
       this.alertedCycle = true;

@@ -82,7 +82,13 @@ class NpcAgent {
     }
   }
 
-  update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
+  update(
+    dt: number,
+    playerPosition: Vector3,
+    playerCollider: Mesh,
+    awarenessActive: boolean,
+    awarenessRateScale = 1,
+  ): AwarenessSnapshot {
     if (!this.enabled) return { state: "NORMAL", meter: 0, label: this.config.name };
 
     this.investigateTimer = Math.max(0, this.investigateTimer - dt);
@@ -91,7 +97,7 @@ class NpcAgent {
     if (this.senseTimer <= 0) {
       const step = this.senseInterval;
       this.senseTimer = step;
-      this.updateAwareness(step, playerPosition, playerCollider, awarenessActive);
+      this.updateAwareness(step, playerPosition, playerCollider, awarenessActive, awarenessRateScale);
     }
     return { state: this.state, meter: this.awareness, label: this.config.name };
   }
@@ -145,7 +151,13 @@ class NpcAgent {
     return distance;
   }
 
-  private updateAwareness(dt: number, playerPosition: Vector3, playerCollider: Mesh, active: boolean): void {
+  private updateAwareness(
+    dt: number,
+    playerPosition: Vector3,
+    playerCollider: Mesh,
+    active: boolean,
+    awarenessRateScale: number,
+  ): void {
     if (!active) {
       this.awareness = Math.max(0, this.awareness - dt * 1.25);
       this.investigateTimer = 0;
@@ -175,14 +187,16 @@ class NpcAgent {
       }
     }
 
+    const rateScale = Math.max(0.7, Math.min(1.4, awarenessRateScale));
     if (visible) {
       this.lastSeenPosition = playerPosition.clone();
       this.investigateTimer = this.config.security ? 3.4 : 2.4;
       const proximity = 1 - Math.min(1, distance / (this.config.security ? 9.0 : 6.2));
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
-      this.awareness = Math.min(1, this.awareness + dt * rate);
+      this.awareness = Math.min(1, this.awareness + dt * rate * rateScale);
     } else {
-      this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58));
+      const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.12 : 1;
+      this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58) * decayScale);
       if (this.awareness < 0.18 && this.investigateTimer <= 0) this.lastSeenPosition = null;
     }
 
@@ -236,8 +250,12 @@ export class NpcSystem {
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
     let strongest: AwarenessSnapshot = { state: "NORMAL", meter: 0, label: "" };
-    for (const agent of this.agents) {
-      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive);
+    const route = document.body.dataset.route;
+    for (const [index, agent] of this.agents.entries()) {
+      let routeRisk = 1;
+      if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
+      if (route === "side") routeRisk = index === 1 ? 1.28 : index === 0 ? 0.92 : 1;
+      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk);
       if (snapshot.meter > strongest.meter) strongest = snapshot;
     }
     return strongest;

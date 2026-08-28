@@ -29,6 +29,7 @@ export function resetMissionProgress(): void {
   } catch {
     // Storage failure must never prevent returning to a fresh runtime.
   }
+  document.body.dataset.route = "none";
 }
 
 export class MissionDirector {
@@ -43,6 +44,7 @@ export class MissionDirector {
 
   constructor() {
     this.restore();
+    this.syncRouteSignal();
   }
 
   acknowledgeBriefing(): void {
@@ -80,6 +82,7 @@ export class MissionDirector {
     if (!this.canInteract(interaction)) return false;
     this.selectedRoute = route;
     this.state = "INFILTRATE";
+    this.syncRouteSignal();
     this.persist();
     return true;
   }
@@ -144,11 +147,17 @@ export class MissionDirector {
     switch (this.state) {
       case "BRIEFING": return "Görev dosyasını aç ve Fresh Market bölgesini incele.";
       case "RECON": return "Recon Lens ile iki erişim noktasını analiz et. Ek intel daha yüksek görev skoru sağlar.";
-      case "PLANNING": return "Keşfettiğin ANA veya YAN yaklaşımı seç.";
-      case "INFILTRATE": return "Seçtiğin rotadan görev alanına gir ve teslimat kaydını doğrula.";
+      case "PLANNING": return "Keşfettiğin ANA veya YAN yaklaşımı seç. ANA rota CCTV'ye, YAN rota arka devriyeye daha açık.";
+      case "INFILTRATE": return this.selectedRoute === "side"
+        ? "YAN ROTA · Teslimat girişinden ilerle. CCTV kör noktası daha güçlü; arka güvenlik devriyesi daha tetikte."
+        : "ANA ROTA · Ön cepheden ilerle. Güvenlik devriyesi dengeli; CCTV seni daha hızlı fark eder.";
       case "EXTRACT": return "Görev alanından ayrıl.";
       case "COMPLETE": return `Görev tamamlandı · ${this.alerts === 0 ? "GHOST" : this.alerts <= 2 ? "SHADOW" : "OPERATIVE"} · SKOR ${this.computeScore()}`;
     }
+  }
+
+  private syncRouteSignal(): void {
+    document.body.dataset.route = this.selectedRoute || "none";
   }
 
   private persist(): void {
