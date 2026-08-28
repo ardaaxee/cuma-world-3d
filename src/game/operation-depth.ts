@@ -9,6 +9,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import "../operation-depth.css";
+import "./world-expansion";
 
 type OperationAction = "access-terminal" | "manifest-terminal";
 
