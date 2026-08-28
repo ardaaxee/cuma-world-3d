@@ -8,6 +8,7 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import "../security-network.css";
 import { isInCover } from "./cover";
 import { isCrouched } from "./input";
 
@@ -26,6 +27,13 @@ type AgentConfig = {
   color: Color3;
 };
 
+type PendingBroadcast = {
+  sourceIndex: number;
+  point: Vector3;
+  timer: number;
+  severity: "SUSPICIOUS" | "ALERT";
+};
+
 class NpcAgent {
   readonly root: TransformNode;
   private readonly route: Vector3[];
@@ -38,6 +46,8 @@ class NpcAgent {
   private enabled = true;
   private lastSeenPosition: Vector3 | null = null;
   private investigateTimer = 0;
+  private searchTimer = 0;
+  private searchDirection = 1;
 
   constructor(
     private readonly scene: Scene,
@@ -94,6 +104,7 @@ class NpcAgent {
     if (!this.enabled) return { state: "NORMAL", meter: 0, label: this.config.name };
 
     this.investigateTimer = Math.max(0, this.investigateTimer - dt);
+    this.searchTimer = Math.max(0, this.searchTimer - dt);
     this.updatePatrol(dt);
     this.senseTimer -= dt;
     if (this.senseTimer <= 0) {
@@ -112,6 +123,7 @@ class NpcAgent {
       this.state = "NORMAL";
       this.alertedCycle = false;
       this.investigateTimer = 0;
+      this.searchTimer = 0;
       this.lastSeenPosition = null;
       this.senseTimer = this.senseInterval;
     }
@@ -122,20 +134,43 @@ class NpcAgent {
     this.senseTimer = Math.min(this.senseTimer, this.senseInterval);
   }
 
-  investigate(position: Vector3): void {
+  isSecurity(): boolean {
+    return this.config.security;
+  }
+
+  lastKnownPosition(): Vector3 | null {
+    return this.lastSeenPosition?.clone() ?? null;
+  }
+
+  investigate(position: Vector3, awarenessFloor?: number): void {
     if (!this.enabled || this.state === "ALERT") return;
     this.lastSeenPosition = position.clone();
     this.investigateTimer = this.config.security ? 4.6 : 3.1;
-    this.awareness = Math.max(this.awareness, this.config.security ? 0.3 : 0.24);
+    this.searchTimer = 0;
+    const floor = awarenessFloor ?? (this.config.security ? 0.3 : 0.24);
+    this.awareness = Math.max(this.awareness, Math.max(0.22, Math.min(0.68, floor)));
     this.refreshState();
   }
 
   private updatePatrol(dt: number): void {
-    if (this.state === "ALERT") return;
+    if (this.lastSeenPosition && this.investigateTimer > 0 && this.state !== "NORMAL") {
+      const investigateSpeed = this.state === "ALERT" ? 1.18 : this.state === "SUSPICIOUS" ? 0.88 : 0.66;
+      if (this.moveToward(this.lastSeenPosition, investigateSpeed, dt) < 0.34) {
+        this.investigateTimer = 0;
+        this.searchTimer = this.config.security ? 3.6 : 2.2;
+        this.searchDirection *= -1;
+      }
+      return;
+    }
 
-    if (this.lastSeenPosition && this.investigateTimer > 0 && (this.state === "CURIOUS" || this.state === "SUSPICIOUS")) {
-      const investigateSpeed = this.state === "SUSPICIOUS" ? 0.82 : 0.62;
-      if (this.moveToward(this.lastSeenPosition, investigateSpeed, dt) < 0.34) this.investigateTimer = 0;
+    if (this.searchTimer > 0 && this.state !== "NORMAL") {
+      const searchSpeed = this.config.security ? 0.86 : 0.62;
+      this.root.rotation.y += dt * searchSpeed * this.searchDirection;
+      return;
+    }
+
+    if (this.state === "ALERT") {
+      this.root.rotation.y += dt * 0.72;
       return;
     }
 
@@ -171,6 +206,7 @@ class NpcAgent {
     if (!active) {
       this.awareness = Math.max(0, this.awareness - dt * 1.25);
       this.investigateTimer = 0;
+      this.searchTimer = 0;
       this.lastSeenPosition = null;
       this.refreshState();
       return;
@@ -202,13 +238,15 @@ class NpcAgent {
     if (visible) {
       this.lastSeenPosition = playerPosition.clone();
       this.investigateTimer = this.config.security ? 3.4 : 2.4;
+      this.searchTimer = 0;
       const proximity = 1 - Math.min(1, distance / (this.config.security ? 9.0 : 6.2));
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
       this.awareness = Math.min(1, this.awareness + dt * rate * rateScale);
     } else {
       const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.2 : 1;
-      this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58) * decayScale);
-      if (this.awareness < 0.18 && this.investigateTimer <= 0) this.lastSeenPosition = null;
+      const searchHold = this.searchTimer > 0 ? 0.62 : 1;
+      this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58) * decayScale * searchHold);
+      if (this.awareness < 0.18 && this.investigateTimer <= 0 && this.searchTimer <= 0) this.lastSeenPosition = null;
     }
 
     this.refreshState();
@@ -235,6 +273,11 @@ class NpcAgent {
 
 export class NpcSystem {
   private readonly agents: NpcAgent[];
+  private readonly securityStates: AwarenessState[] = ["NORMAL", "NORMAL", "NORMAL"];
+  private readonly networkStatus: HTMLElement;
+  private pendingBroadcast: PendingBroadcast | null = null;
+  private broadcastCooldown = 0;
+  private networkStatusTimer = 0;
 
   constructor(scene: Scene, onAlert: (name: string) => void, addShadowCaster: (mesh: Mesh) => void) {
     this.agents = [
@@ -258,6 +301,11 @@ export class NpcSystem {
       }, onAlert, addShadowCaster),
     ];
 
+    this.networkStatus = document.createElement("div");
+    this.networkStatus.className = "security-network-status hidden";
+    this.networkStatus.setAttribute("aria-live", "polite");
+    document.body.appendChild(this.networkStatus);
+
     window.addEventListener("cuma-gadget-decoy", (event) => {
       const detail = (event as CustomEvent<{ x: number; y: number; z: number }>).detail;
       if (!detail || !Number.isFinite(detail.x) || !Number.isFinite(detail.y) || !Number.isFinite(detail.z)) return;
@@ -269,16 +317,34 @@ export class NpcSystem {
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
+    this.updateSecurityNetwork(dt);
     let strongest: AwarenessSnapshot = { state: "NORMAL", meter: 0, label: "" };
     const route = document.body.dataset.route;
     const stanceRisk = isCrouched() ? 0.7 : 1;
     const coverRisk = isInCover() ? 0.56 : 1;
+
     for (const [index, agent] of this.agents.entries()) {
       let routeRisk = 1;
       if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
       if (route === "side") routeRisk = index === 1 ? 1.28 : index === 0 ? 0.92 : 1;
       const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk * coverRisk);
       if (snapshot.meter > strongest.meter) strongest = snapshot;
+
+      const previous = this.securityStates[index] ?? "NORMAL";
+      if (agent.isSecurity() && this.shouldBroadcast(previous, snapshot.state) && !this.pendingBroadcast && this.broadcastCooldown <= 0) {
+        const point = agent.lastKnownPosition();
+        if (point) {
+          const severity = snapshot.state === "ALERT" ? "ALERT" : "SUSPICIOUS";
+          this.pendingBroadcast = {
+            sourceIndex: index,
+            point,
+            timer: severity === "ALERT" ? 0.38 : 0.9,
+            severity,
+          };
+          this.showNetworkStatus(severity === "ALERT" ? "GÜVENLİK AĞI · ACİL KONUM AKTARIMI" : "GÜVENLİK AĞI · ŞÜPHELİ KONUM PAYLAŞILIYOR", 1.25);
+        }
+      }
+      this.securityStates[index] = snapshot.state;
     }
     return strongest;
   }
@@ -289,5 +355,43 @@ export class NpcSystem {
       agent.setSenseInterval(senseInterval);
       agent.setEnabled(tier !== "LOW" || index < 2);
     });
+  }
+
+  private updateSecurityNetwork(dt: number): void {
+    this.broadcastCooldown = Math.max(0, this.broadcastCooldown - dt);
+    this.networkStatusTimer = Math.max(0, this.networkStatusTimer - dt);
+    if (this.networkStatusTimer <= 0) {
+      this.networkStatus.classList.add("hidden");
+      document.body.classList.remove("security-network-active");
+    }
+
+    if (!this.pendingBroadcast) return;
+    this.pendingBroadcast.timer -= dt;
+    if (this.pendingBroadcast.timer > 0) return;
+
+    const pending = this.pendingBroadcast;
+    this.pendingBroadcast = null;
+    const awarenessFloor = pending.severity === "ALERT" ? 0.48 : 0.34;
+    let receivers = 0;
+    for (const [index, agent] of this.agents.entries()) {
+      if (index === pending.sourceIndex) continue;
+      if (Vector3.Distance(agent.root.position, pending.point) > 17) continue;
+      agent.investigate(pending.point, awarenessFloor);
+      receivers += 1;
+    }
+    this.broadcastCooldown = pending.severity === "ALERT" ? 4.2 : 5.8;
+    this.showNetworkStatus(receivers > 0 ? `GÜVENLİK AĞI · ${receivers} BİRİM ARAMAYA GEÇTİ` : "GÜVENLİK AĞI · YAKIN BİRİM YOK", 2.2);
+  }
+
+  private shouldBroadcast(previous: AwarenessState, current: AwarenessState): boolean {
+    const rank = (state: AwarenessState): number => state === "ALERT" ? 3 : state === "SUSPICIOUS" ? 2 : state === "CURIOUS" ? 1 : 0;
+    return rank(current) >= 2 && rank(previous) < rank(current);
+  }
+
+  private showNetworkStatus(text: string, duration: number): void {
+    this.networkStatus.textContent = text;
+    this.networkStatus.classList.remove("hidden");
+    document.body.classList.add("security-network-active");
+    this.networkStatusTimer = Math.max(this.networkStatusTimer, duration);
   }
 }
