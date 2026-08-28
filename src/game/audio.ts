@@ -1,3 +1,5 @@
+import { isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
+
 export class GameAudio {
   private readonly ambience = new Audio("./assets/audio/city_ambience.wav");
   private readonly footsteps = [
@@ -34,14 +36,15 @@ export class GameAudio {
   }
 
   updateFootsteps(speed: number, dt: number): void {
-    if (!this.unlocked || this.masterVolume <= 0 || speed < 0.55) {
+    const locomotionSpeed = speed * (isRunHeld() ? RUN_SPEED_MULTIPLIER : 1);
+    if (!this.unlocked || this.masterVolume <= 0 || locomotionSpeed < 0.55) {
       this.footstepClock = 0;
       return;
     }
 
-    const pace = Math.max(0, Math.min(1, (speed - 0.55) / 3.6));
-    const running = speed > 3.5;
-    const interval = 0.49 - pace * 0.18;
+    const pace = Math.max(0, Math.min(1, (locomotionSpeed - 0.55) / 5.0));
+    const running = isRunHeld() && locomotionSpeed > 3.5;
+    const interval = 0.49 - pace * 0.2;
     this.footstepClock += dt;
     if (this.footstepClock < interval) return;
     this.footstepClock %= interval;

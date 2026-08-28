@@ -4,12 +4,14 @@ import {
   Mesh,
   MeshBuilder,
   PBRMaterial,
+  Ray,
   Scene,
   SceneLoader,
   ShadowLight,
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import { consumeJumpPressed, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
 
 export class PlayerCharacter {
   readonly collider: Mesh;
@@ -24,6 +26,9 @@ export class PlayerCharacter {
   private stride = 0;
   private idlePhase = 0;
   private shadowRefreshClock = 0;
+  private verticalVelocity = 0;
+  private grounded = true;
+  private groundGrace = 0.11;
   private torsoPivot: TransformNode | null = null;
   private headPivot: TransformNode | null = null;
   private leftArmPivot: TransformNode | null = null;
@@ -57,7 +62,12 @@ export class PlayerCharacter {
   }
 
   move(displacement: Vector3): void {
-    this.collider.moveWithCollisions(displacement);
+    const multiplier = isRunHeld() ? RUN_SPEED_MULTIPLIER : 1;
+    this.collider.moveWithCollisions(new Vector3(
+      displacement.x * multiplier,
+      displacement.y,
+      displacement.z * multiplier,
+    ));
   }
 
   setFacing(yaw: number, dt: number): void {
@@ -69,41 +79,88 @@ export class PlayerCharacter {
   }
 
   update(speed: number, dt: number, reducedMotion: boolean): void {
-    this.speed += (speed - this.speed) * (1 - Math.exp(-10 * dt));
+    this.applyJump(dt);
+    const sprinting = isRunHeld() && speed > 0.65;
+    const effectiveSpeed = speed * (sprinting ? RUN_SPEED_MULTIPLIER : 1);
+    this.speed += (effectiveSpeed - this.speed) * (1 - Math.exp(-10 * dt));
     this.syncShadowCasters(dt);
     if (this.imported) {
-      this.updateImportedAnimation(this.speed);
+      this.updateImportedAnimation(this.speed, sprinting);
       return;
     }
 
     this.idlePhase += dt * 1.6;
     const locomotion = Math.min(1, this.speed / 4.15);
-    const running = Math.max(0, Math.min(1, (this.speed - 2.8) / 1.35));
+    const running = sprinting ? Math.max(0, Math.min(1, (this.speed - 3.35) / 2.0)) : 0;
     const motionScale = reducedMotion ? 0.58 : 1;
     this.stride += Math.max(0.35, this.speed) * dt * (2.0 + running * 0.72);
 
     const cycle = Math.sin(this.stride);
     const swing = cycle * (0.36 + running * 0.16) * locomotion * motionScale;
     const legSwing = cycle * (0.48 + running * 0.12) * locomotion * motionScale;
-    const bob = Math.abs(Math.sin(this.stride)) * (0.022 + running * 0.013) * locomotion * motionScale;
+    const bob = this.grounded ? Math.abs(Math.sin(this.stride)) * (0.022 + running * 0.013) * locomotion * motionScale : 0;
     const breathe = Math.sin(this.idlePhase) * 0.006 * (1 - locomotion) * motionScale;
 
     this.visualRoot.position.y = -0.86 + bob + breathe;
 
-    if (this.leftArmPivot) this.leftArmPivot.rotation.x = swing;
-    if (this.rightArmPivot) this.rightArmPivot.rotation.x = -swing;
-    if (this.leftLegPivot) this.leftLegPivot.rotation.x = -legSwing;
-    if (this.rightLegPivot) this.rightLegPivot.rotation.x = legSwing;
+    if (this.grounded) {
+      if (this.leftArmPivot) this.leftArmPivot.rotation.x = swing;
+      if (this.rightArmPivot) this.rightArmPivot.rotation.x = -swing;
+      if (this.leftLegPivot) this.leftLegPivot.rotation.x = -legSwing;
+      if (this.rightLegPivot) this.rightLegPivot.rotation.x = legSwing;
+    } else {
+      if (this.leftArmPivot) this.leftArmPivot.rotation.x = 0.12 * motionScale;
+      if (this.rightArmPivot) this.rightArmPivot.rotation.x = -0.12 * motionScale;
+      if (this.leftLegPivot) this.leftLegPivot.rotation.x = -0.2 * motionScale;
+      if (this.rightLegPivot) this.rightLegPivot.rotation.x = 0.3 * motionScale;
+    }
 
     if (this.torsoPivot) {
       this.torsoPivot.rotation.x = -0.045 * running * motionScale;
-      this.torsoPivot.rotation.z = cycle * 0.018 * locomotion * motionScale;
+      this.torsoPivot.rotation.z = this.grounded ? cycle * 0.018 * locomotion * motionScale : 0;
       this.torsoPivot.scaling.y = 1 + Math.sin(this.idlePhase) * 0.006 * (1 - locomotion) * motionScale;
     }
     if (this.headPivot) {
-      this.headPivot.rotation.z = -cycle * 0.014 * locomotion * motionScale;
+      this.headPivot.rotation.z = this.grounded ? -cycle * 0.014 * locomotion * motionScale : 0;
       this.headPivot.rotation.x = 0.018 * running * motionScale;
     }
+  }
+
+  private applyJump(dt: number): void {
+    const groundedNow = this.detectGround();
+    if (groundedNow && this.verticalVelocity <= 0) {
+      this.grounded = true;
+      this.groundGrace = 0.11;
+      this.verticalVelocity = 0;
+    } else {
+      this.grounded = false;
+      this.groundGrace = Math.max(0, this.groundGrace - dt);
+    }
+
+    if (consumeJumpPressed() && this.groundGrace > 0) {
+      this.verticalVelocity = 5.35;
+      this.grounded = false;
+      this.groundGrace = 0;
+    }
+
+    if (this.grounded && this.verticalVelocity <= 0) return;
+    this.verticalVelocity = Math.max(-10.5, this.verticalVelocity - 14.5 * dt);
+    this.collider.moveWithCollisions(new Vector3(0, this.verticalVelocity * dt, 0));
+
+    if (this.verticalVelocity < 0 && this.detectGround()) {
+      this.verticalVelocity = 0;
+      this.grounded = true;
+      this.groundGrace = 0.11;
+    }
+  }
+
+  private detectGround(): boolean {
+    const ray = new Ray(this.collider.position, new Vector3(0, -1, 0), 0.94);
+    const hit = this.scene.pickWithRay(
+      ray,
+      (mesh) => mesh !== this.collider && mesh.checkCollisions && mesh.isEnabled(),
+    );
+    return Boolean(hit?.hit && hit.distance <= 0.94);
   }
 
   private async tryLoadRuntimeModel(): Promise<void> {
@@ -138,8 +195,8 @@ export class PlayerCharacter {
     }
   }
 
-  private updateImportedAnimation(speed: number): void {
-    const requested: "idle" | "walk" | "run" = speed < 0.25 ? "idle" : speed > 3.35 ? "run" : "walk";
+  private updateImportedAnimation(speed: number, sprinting: boolean): void {
+    const requested: "idle" | "walk" | "run" = speed < 0.25 ? "idle" : sprinting ? "run" : "walk";
     this.playImportedAnimation(requested);
   }
 

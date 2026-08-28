@@ -1,3 +1,5 @@
+import "../movement.css";
+
 export interface InputFrame {
   moveX: number;
   moveY: number;
@@ -5,6 +7,21 @@ export interface InputFrame {
   lookY: number;
   observePressed: boolean;
   interactPressed: boolean;
+}
+
+export const RUN_SPEED_MULTIPLIER = 1.42;
+
+let runHeld = false;
+let jumpQueued = false;
+
+export function isRunHeld(): boolean {
+  return runHeld;
+}
+
+export function consumeJumpPressed(): boolean {
+  const pressed = jumpQueued;
+  jumpQueued = false;
+  return pressed;
 }
 
 export class MobileInput {
@@ -18,14 +35,18 @@ export class MobileInput {
   private lookPointer: number | null = null;
   private lastLookX = 0;
   private lastLookY = 0;
+  private runButton: HTMLButtonElement | null = null;
 
   constructor() {
     const joystick = document.querySelector<HTMLElement>("#joystick");
     const knob = document.querySelector<HTMLElement>("#joystick-knob");
     const look = document.querySelector<HTMLElement>("#look-zone");
+    const run = document.querySelector<HTMLButtonElement>("#run");
+    const jump = document.querySelector<HTMLButtonElement>("#jump");
     const observe = document.querySelector<HTMLButtonElement>("#observe");
     const interact = document.querySelector<HTMLButtonElement>("#interact");
-    if (!joystick || !knob || !look || !observe || !interact) throw new Error("Mobile controls missing");
+    if (!joystick || !knob || !look || !run || !jump || !observe || !interact) throw new Error("Mobile controls missing");
+    this.runButton = run;
 
     const updateStick = (event: PointerEvent) => {
       const rect = joystick.getBoundingClientRect();
@@ -100,6 +121,26 @@ export class MobileInput {
     look.addEventListener("pointercancel", releaseLook);
     look.addEventListener("lostpointercapture", releaseLook);
 
+    const releaseRun = () => {
+      runHeld = false;
+      run.classList.remove("pressed");
+    };
+    run.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      runHeld = true;
+      run.classList.add("pressed");
+      run.setPointerCapture(event.pointerId);
+    });
+    run.addEventListener("pointerup", releaseRun);
+    run.addEventListener("pointercancel", releaseRun);
+    run.addEventListener("lostpointercapture", releaseRun);
+
+    jump.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      jumpQueued = true;
+      if (typeof navigator.vibrate === "function") navigator.vibrate(12);
+    });
+
     observe.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       this.observePressed = true;
@@ -107,6 +148,17 @@ export class MobileInput {
     interact.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       this.interactPressed = true;
+    });
+
+    window.addEventListener("keydown", (event) => {
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
+        runHeld = true;
+        run.classList.add("pressed");
+      }
+      if (event.code === "Space" && !event.repeat) jumpQueued = true;
+    });
+    window.addEventListener("keyup", (event) => {
+      if (event.code === "ShiftLeft" || event.code === "ShiftRight") releaseRun();
     });
 
     window.addEventListener("blur", () => this.reset());
@@ -138,5 +190,8 @@ export class MobileInput {
     this.lookY = 0;
     this.joystickPointer = null;
     this.lookPointer = null;
+    runHeld = false;
+    jumpQueued = false;
+    this.runButton?.classList.remove("pressed");
   }
 }
