@@ -8,6 +8,7 @@
   </head>
   <body class="hud-compact">
     <canvas id="game"></canvas>
+    <div id="cinematic-overlay" class="cinematic-overlay" aria-hidden="true"></div>
 
     <div id="boot" class="boot-screen">
       <div class="briefing-shell">
@@ -82,9 +83,9 @@
         <button id="settings-close" class="settings-close" aria-label="Ayarları kapat">×</button>
       </div>
 
-      <div class="settings-section-title">GRAFİK</div>
+      <div class="settings-section-title">GRAFİK PRESET</div>
       <label class="setting-row">
-        <span><strong>Kalite</strong><small>Performans ve görüntü bütçesi</small></span>
+        <span><strong>Kalite</strong><small>Sahne detayı, NPC bütçesi ve ışık kalitesi</small></span>
         <select id="graphics-tier">
           <option value="AUTO">AUTO</option>
           <option value="LOW">LOW</option>
@@ -94,11 +95,25 @@
         </select>
       </label>
       <label class="setting-row">
-        <span><strong>Çözünürlük</strong><small>3D render ölçeği</small></span>
+        <span><strong>Güç modu</strong><small>Pil, akıcılık ve görüntü önceliği</small></span>
+        <select id="graphics-power-mode">
+          <option value="BATTERY">PİL</option>
+          <option value="BALANCED">DENGELİ</option>
+          <option value="PERFORMANCE">PERFORMANS</option>
+          <option value="QUALITY">KALİTE</option>
+        </select>
+      </label>
+
+      <div class="settings-section-title">GÖRÜNTÜ</div>
+      <label class="setting-row">
+        <span><strong>Render ölçeği</strong><small>3D iç çözünürlük</small></span>
         <select id="graphics-resolution">
           <option value="AUTO">AUTO</option>
+          <option value="0.6">%60</option>
           <option value="0.7">%70</option>
+          <option value="0.8">%80</option>
           <option value="0.85">%85</option>
+          <option value="0.9">%90</option>
           <option value="1">%100</option>
         </select>
       </label>
@@ -112,13 +127,64 @@
         </select>
       </label>
       <label class="setting-row">
-        <span><strong>Gölgeler</strong><small>Mobil GPU maliyeti yüksek olabilir</small></span>
+        <span><strong>Görüş mesafesi</strong><small>Uzak geometri ve sis sınırı</small></span>
+        <select id="graphics-view-distance">
+          <option value="AUTO">AUTO</option>
+          <option value="NEAR">YAKIN</option>
+          <option value="MEDIUM">ORTA</option>
+          <option value="FAR">UZAK</option>
+          <option value="MAX">MAKSİMUM</option>
+        </select>
+      </label>
+
+      <div class="settings-section-title">IŞIK / GÖLGE</div>
+      <label class="setting-row">
+        <span><strong>Gölgeler</strong><small>Dinamik gölge üretimi</small></span>
         <select id="graphics-shadows">
           <option value="AUTO">AUTO</option>
           <option value="ON">AÇIK</option>
           <option value="OFF">KAPALI</option>
         </select>
       </label>
+      <label class="setting-row">
+        <span><strong>Gölge filtresi</strong><small>Hard daha hızlı, Soft daha sinematik</small></span>
+        <select id="graphics-shadow-quality">
+          <option value="AUTO">AUTO</option>
+          <option value="HARD">HARD</option>
+          <option value="SOFT">SOFT</option>
+        </select>
+      </label>
+      <div class="setting-row static-row">
+        <span><strong>Anti-aliasing</strong><small>Engine WebGL donanım AA</small></span>
+        <b>AÇIK</b>
+      </div>
+
+      <div class="settings-section-title">SİNEMATİK</div>
+      <label class="setting-row">
+        <span><strong>Color grade</strong><small>Tone mapping görünümü</small></span>
+        <select id="graphics-color-grade">
+          <option value="CINEMATIC">CINEMATIC</option>
+          <option value="NEUTRAL">NEUTRAL</option>
+          <option value="WARM">WARM</option>
+          <option value="CRISP">CRISP</option>
+        </select>
+      </label>
+      <label class="setting-row">
+        <span><strong>Film grain</strong><small>Hafif sinematik yüzey dokusu</small></span>
+        <select id="graphics-film-grain">
+          <option value="OFF">KAPALI</option>
+          <option value="LOW">DÜŞÜK</option>
+          <option value="HIGH">YÜKSEK</option>
+        </select>
+      </label>
+      <label class="setting-row toggle-row">
+        <span><strong>Vignette</strong><small>Kenar karartma</small></span>
+        <input id="graphics-vignette" type="checkbox" />
+      </label>
+      <div class="setting-row static-row unsupported-row">
+        <span><strong>Ray tracing / DLSS</strong><small>Android WebGL runtime bu teknolojileri sağlamıyor</small></span>
+        <b>DESTEKLENMİYOR</b>
+      </div>
 
       <div class="settings-section-title">KONTROL</div>
       <label class="setting-row">
@@ -155,11 +221,13 @@
         <input id="reduced-motion" type="checkbox" />
       </label>
 
-      <div class="settings-section-title">EKRAN</div>
+      <div class="settings-section-title">CİHAZ / DESTEK</div>
+      <div id="graphics-capabilities" class="graphics-capabilities">Cihaz özellikleri okunuyor…</div>
       <div class="setting-row static-row">
         <span><strong>Android yönü</strong><small>Telefonu iki yatay yönde çevirebilirsin</small></span>
         <b>YATAY</b>
       </div>
+      <button id="graphics-reset" class="action settings-reset" type="button">GRAFİĞİ SIFIRLA</button>
 
       <div class="settings-section-title">GİZLİLİK</div>
       <a href="./privacy.html" class="setting-row static-row" style="color:inherit;text-decoration:none">
