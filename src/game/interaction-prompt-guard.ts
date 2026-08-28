@@ -1,3 +1,5 @@
+import "../interaction-feedback.css";
+
 type MissionUiState = "BRIEFING" | "RECON" | "PLANNING" | "INFILTRATE" | "EXTRACT" | "COMPLETE" | "UNKNOWN";
 
 export class InteractionPromptGuard {
@@ -18,6 +20,7 @@ export class InteractionPromptGuard {
     const label = (this.interaction.textContent ?? "").trim();
     const actionable = this.isActionable(state, label);
     this.interaction.dataset.actionable = actionable ? "true" : "false";
+    document.body.classList.toggle("interaction-ready", actionable);
     if (actionable) this.interaction.style.removeProperty("display");
     else this.interaction.style.display = "none";
   }
