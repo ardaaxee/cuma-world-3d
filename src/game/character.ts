@@ -11,7 +11,7 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
-import { consumeJumpPressed, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
+import { consumeJumpPressed, CROUCH_SPEED_MULTIPLIER, isCrouched, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
 
 export class PlayerCharacter {
   readonly collider: Mesh;
@@ -63,7 +63,7 @@ export class PlayerCharacter {
   }
 
   move(displacement: Vector3): void {
-    const multiplier = isRunHeld() ? RUN_SPEED_MULTIPLIER : 1;
+    const multiplier = isCrouched() ? CROUCH_SPEED_MULTIPLIER : isRunHeld() ? RUN_SPEED_MULTIPLIER : 1;
     this.collider.moveWithCollisions(new Vector3(
       displacement.x * multiplier,
       displacement.y,
@@ -82,10 +82,16 @@ export class PlayerCharacter {
   update(speed: number, dt: number, reducedMotion: boolean): void {
     this.applyJump(dt);
     this.landingCameraKick += (0 - this.landingCameraKick) * (1 - Math.exp(-15 * dt));
-    this.cameraTarget.position.y = 0.62 + this.landingCameraKick * (reducedMotion ? 0.22 : 1);
+    const crouched = isCrouched();
+    const baseCameraHeight = crouched ? 0.34 : 0.62;
+    const cameraKick = this.landingCameraKick * (reducedMotion ? 0.22 : 1);
+    this.cameraTarget.position.y += (baseCameraHeight + cameraKick - this.cameraTarget.position.y) * (1 - Math.exp(-11 * dt));
+    const stanceScale = crouched ? 0.82 : 1;
+    this.visualRoot.scaling.y += (stanceScale - this.visualRoot.scaling.y) * (1 - Math.exp(-10 * dt));
 
-    const sprinting = isRunHeld() && speed > 2.25;
-    const effectiveSpeed = speed * (sprinting ? RUN_SPEED_MULTIPLIER : 1);
+    const sprinting = isRunHeld() && !crouched && speed > 2.25;
+    const movementScale = crouched ? CROUCH_SPEED_MULTIPLIER : sprinting ? RUN_SPEED_MULTIPLIER : 1;
+    const effectiveSpeed = speed * movementScale;
     this.speed += (effectiveSpeed - this.speed) * (1 - Math.exp(-10 * dt));
     this.syncShadowCasters(dt);
     if (this.imported) {
@@ -120,13 +126,13 @@ export class PlayerCharacter {
     }
 
     if (this.torsoPivot) {
-      this.torsoPivot.rotation.x = -0.045 * running * motionScale;
+      this.torsoPivot.rotation.x = crouched ? -0.16 * motionScale : -0.045 * running * motionScale;
       this.torsoPivot.rotation.z = this.grounded ? cycle * 0.018 * locomotion * motionScale : 0;
       this.torsoPivot.scaling.y = 1 + Math.sin(this.idlePhase) * 0.006 * (1 - locomotion) * motionScale;
     }
     if (this.headPivot) {
       this.headPivot.rotation.z = this.grounded ? -cycle * 0.014 * locomotion * motionScale : 0;
-      this.headPivot.rotation.x = 0.018 * running * motionScale;
+      this.headPivot.rotation.x = crouched ? 0.08 * motionScale : 0.018 * running * motionScale;
     }
   }
 
@@ -143,7 +149,7 @@ export class PlayerCharacter {
       this.groundGrace = Math.max(0, this.groundGrace - dt);
     }
 
-    if (consumeJumpPressed() && this.groundGrace > 0) {
+    if (consumeJumpPressed() && this.groundGrace > 0 && !isCrouched()) {
       this.verticalVelocity = 5.35;
       this.grounded = false;
       this.groundGrace = 0;

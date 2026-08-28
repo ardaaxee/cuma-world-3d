@@ -8,6 +8,7 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import { isCrouched } from "./input";
 
 export type AwarenessState = "NORMAL" | "CURIOUS" | "SUSPICIOUS" | "ALERT";
 
@@ -167,7 +168,7 @@ class NpcAgent {
     }
 
     const eye = this.root.position.add(new Vector3(0, 1.55, 0));
-    const playerEye = playerPosition.add(new Vector3(0, 0.62, 0));
+    const playerEye = playerPosition.add(new Vector3(0, isCrouched() ? 0.32 : 0.62, 0));
     const toPlayer = playerEye.subtract(eye);
     const distance = toPlayer.length();
     let visible = false;
@@ -187,7 +188,7 @@ class NpcAgent {
       }
     }
 
-    const rateScale = Math.max(0.7, Math.min(1.4, awarenessRateScale));
+    const rateScale = Math.max(0.62, Math.min(1.4, awarenessRateScale));
     if (visible) {
       this.lastSeenPosition = playerPosition.clone();
       this.investigateTimer = this.config.security ? 3.4 : 2.4;
@@ -195,7 +196,7 @@ class NpcAgent {
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
       this.awareness = Math.min(1, this.awareness + dt * rate * rateScale);
     } else {
-      const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.12 : 1;
+      const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.16 : 1;
       this.awareness = Math.max(0, this.awareness - dt * (this.config.security ? 0.42 : 0.58) * decayScale);
       if (this.awareness < 0.18 && this.investigateTimer <= 0) this.lastSeenPosition = null;
     }
@@ -251,11 +252,12 @@ export class NpcSystem {
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
     let strongest: AwarenessSnapshot = { state: "NORMAL", meter: 0, label: "" };
     const route = document.body.dataset.route;
+    const stanceRisk = isCrouched() ? 0.7 : 1;
     for (const [index, agent] of this.agents.entries()) {
       let routeRisk = 1;
       if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
       if (route === "side") routeRisk = index === 1 ? 1.28 : index === 0 ? 0.92 : 1;
-      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk);
+      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk);
       if (snapshot.meter > strongest.meter) strongest = snapshot;
     }
     return strongest;

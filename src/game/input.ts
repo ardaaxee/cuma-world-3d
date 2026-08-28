@@ -10,13 +10,19 @@ export interface InputFrame {
 }
 
 export const RUN_SPEED_MULTIPLIER = 1.42;
+export const CROUCH_SPEED_MULTIPLIER = 0.62;
 const WALK_INPUT_LIMIT = 0.82;
 
 let runHeld = false;
 let jumpQueued = false;
+let crouched = false;
 
 export function isRunHeld(): boolean {
-  return runHeld;
+  return runHeld && !crouched;
+}
+
+export function isCrouched(): boolean {
+  return crouched;
 }
 
 export function consumeJumpPressed(): boolean {
@@ -45,12 +51,15 @@ export class MobileInput {
     const look = document.querySelector<HTMLElement>("#look-zone");
     const run = document.querySelector<HTMLButtonElement>("#run");
     const jump = document.querySelector<HTMLButtonElement>("#jump");
+    const crouch = document.querySelector<HTMLButtonElement>("#crouch");
     const observe = document.querySelector<HTMLButtonElement>("#observe");
     const interact = document.querySelector<HTMLButtonElement>("#interact");
     const interactionPrompt = document.querySelector<HTMLElement>("#interaction");
-    if (!joystick || !knob || !look || !run || !jump || !observe || !interact || !interactionPrompt) throw new Error("Mobile controls missing");
+    if (!joystick || !knob || !look || !run || !jump || !crouch || !observe || !interact || !interactionPrompt) throw new Error("Mobile controls missing");
     this.runButton = run;
     this.jumpButton = jump;
+    document.body.dataset.stance = "standing";
+    crouch.setAttribute("aria-pressed", "false");
 
     const updateStick = (event: PointerEvent) => {
       const rect = joystick.getBoundingClientRect();
@@ -132,7 +141,7 @@ export class MobileInput {
     run.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
       runHeld = true;
-      run.classList.add("pressed");
+      run.classList.toggle("pressed", isRunHeld());
       run.setPointerCapture(event.pointerId);
     });
     run.addEventListener("pointerup", releaseRun);
@@ -149,6 +158,17 @@ export class MobileInput {
     jump.addEventListener("pointerup", releaseJump);
     jump.addEventListener("pointercancel", releaseJump);
     jump.addEventListener("lostpointercapture", releaseJump);
+
+    crouch.addEventListener("pointerdown", (event) => {
+      event.stopPropagation();
+      crouched = !crouched;
+      document.body.dataset.stance = crouched ? "crouched" : "standing";
+      document.body.classList.toggle("crouched", crouched);
+      crouch.classList.toggle("active", crouched);
+      crouch.setAttribute("aria-pressed", String(crouched));
+      run.classList.toggle("pressed", isRunHeld());
+      if (typeof navigator.vibrate === "function") navigator.vibrate(10);
+    });
 
     observe.addEventListener("pointerdown", (event) => {
       event.stopPropagation();
@@ -185,9 +205,10 @@ export class MobileInput {
     window.addEventListener("keydown", (event) => {
       if (event.code === "ShiftLeft" || event.code === "ShiftRight") {
         runHeld = true;
-        run.classList.add("pressed");
+        run.classList.toggle("pressed", isRunHeld());
       }
       if (event.code === "Space" && !event.repeat) jumpQueued = true;
+      if (event.code === "KeyC" && !event.repeat) crouch.dispatchEvent(new PointerEvent("pointerdown"));
     });
     window.addEventListener("keyup", (event) => {
       if (event.code === "ShiftLeft" || event.code === "ShiftRight") releaseRun();
@@ -202,7 +223,7 @@ export class MobileInput {
   frame(): InputFrame {
     let frameMoveX = this.moveX;
     let frameMoveY = this.moveY;
-    if (!runHeld) {
+    if (!isRunHeld()) {
       const magnitude = Math.hypot(frameMoveX, frameMoveY);
       if (magnitude > WALK_INPUT_LIMIT) {
         const scale = WALK_INPUT_LIMIT / magnitude;

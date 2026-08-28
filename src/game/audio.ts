@@ -1,4 +1,4 @@
-import { isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
+import { CROUCH_SPEED_MULTIPLIER, isCrouched, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
 
 export class GameAudio {
   private readonly ambience = new Audio("./assets/audio/city_ambience.wav");
@@ -36,15 +36,16 @@ export class GameAudio {
   }
 
   updateFootsteps(speed: number, dt: number): void {
-    const locomotionSpeed = speed * (isRunHeld() ? RUN_SPEED_MULTIPLIER : 1);
-    if (!this.unlocked || this.masterVolume <= 0 || locomotionSpeed < 0.55) {
+    const crouching = isCrouched();
+    const locomotionSpeed = speed * (crouching ? CROUCH_SPEED_MULTIPLIER : isRunHeld() ? RUN_SPEED_MULTIPLIER : 1);
+    if (!this.unlocked || this.masterVolume <= 0 || locomotionSpeed < 0.35) {
       this.footstepClock = 0;
       return;
     }
 
-    const pace = Math.max(0, Math.min(1, (locomotionSpeed - 0.55) / 5.0));
-    const running = isRunHeld() && locomotionSpeed > 3.5;
-    const interval = 0.49 - pace * 0.2;
+    const pace = Math.max(0, Math.min(1, (locomotionSpeed - 0.35) / 5.0));
+    const running = !crouching && isRunHeld() && locomotionSpeed > 3.5;
+    const interval = crouching ? 0.58 - pace * 0.12 : 0.49 - pace * 0.2;
     this.footstepClock += dt;
     if (this.footstepClock < interval) return;
     this.footstepClock %= interval;
@@ -60,8 +61,9 @@ export class GameAudio {
     try {
       sample.pause();
       sample.currentTime = 0;
-      sample.playbackRate = pitch;
-      sample.volume = Math.min(1, (running ? 0.44 : 0.32 + pace * 0.06) * variation * this.masterVolume);
+      sample.playbackRate = crouching ? pitch * 0.96 : pitch;
+      const baseVolume = crouching ? 0.17 + pace * 0.035 : running ? 0.44 : 0.32 + pace * 0.06;
+      sample.volume = Math.min(1, baseVolume * variation * this.masterVolume);
       void sample.play().catch(() => undefined);
     } catch {
       // Missing/unsupported audio must never break movement.

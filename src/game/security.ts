@@ -7,6 +7,7 @@ import {
   Scene,
   Vector3,
 } from "@babylonjs/core";
+import { isCrouched } from "./input";
 import type { AwarenessSnapshot } from "./npc";
 
 export class SecurityCameraSystem {
@@ -40,10 +41,11 @@ export class SecurityCameraSystem {
     this.senseTimer = 0.09;
 
     const route = document.body.dataset.route;
-    const detectionScale = route === "main" ? 1.12 : route === "side" ? 0.72 : 1;
+    const stanceScale = isCrouched() ? 0.72 : 1;
+    const detectionScale = (route === "main" ? 1.12 : route === "side" ? 0.72 : 1) * stanceScale;
     const decayScale = route === "main" ? 0.9 : route === "side" ? 1.18 : 1;
     const origin = this.cameraMesh.position.add(new Vector3(0, 0.02, 0));
-    const playerEye = playerPosition.add(new Vector3(0, 0.55, 0));
+    const playerEye = playerPosition.add(new Vector3(0, isCrouched() ? 0.3 : 0.55, 0));
     const toPlayer = playerEye.subtract(origin);
     const distance = toPlayer.length();
     let visible = false;
@@ -60,7 +62,7 @@ export class SecurityCameraSystem {
     }
 
     if (visible) this.awareness = Math.min(1, this.awareness + 0.09 * 0.95 * detectionScale);
-    else this.awareness = Math.max(0, this.awareness - 0.09 * 0.62 * decayScale);
+    else this.awareness = Math.max(0, this.awareness - 0.09 * 0.62 * decayScale * (isCrouched() ? 1.08 : 1));
 
     if (this.awareness >= 0.98 && !this.alertedCycle) {
       this.alertedCycle = true;
