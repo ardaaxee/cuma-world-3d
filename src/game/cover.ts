@@ -1,5 +1,6 @@
 import { EngineStore, Mesh, Ray, Vector3 } from "@babylonjs/core";
 import "../cover.css";
+import "./gadgets";
 
 let coverActive = false;
 let coverReady = false;

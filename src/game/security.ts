@@ -18,6 +18,7 @@ export class SecurityCameraSystem {
   private bypassed = false;
   private alertedCycle = false;
   private senseTimer = 0;
+  private jamTimer = 0;
 
   constructor(private readonly scene: Scene, private readonly onAlert: () => void) {
     this.cameraMesh = scene.getMeshByName("fictional-camera") as Mesh | null;
@@ -30,9 +31,25 @@ export class SecurityCameraSystem {
     this.bypassPanel.position = new Vector3(-6.88, 1.28, 5.5);
     this.bypassPanel.material = panelMaterial;
     this.bypassPanel.checkCollisions = false;
+
+    window.addEventListener("cuma-gadget-jam", (event) => {
+      const detail = (event as CustomEvent<{ duration?: number }>).detail;
+      const duration = typeof detail?.duration === "number" && Number.isFinite(detail.duration)
+        ? Math.max(1, Math.min(8, detail.duration))
+        : 5.5;
+      this.jamTimer = Math.max(this.jamTimer, duration);
+      this.awareness = Math.max(0, this.awareness - 0.34);
+    });
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, active: boolean): AwarenessSnapshot {
+    this.jamTimer = Math.max(0, this.jamTimer - dt);
+    if (this.jamTimer > 0 && !this.bypassed) {
+      this.awareness = Math.max(0, this.awareness - dt * 1.65);
+      this.alertedCycle = this.awareness >= 0.35 && this.alertedCycle;
+      return { state: this.state(), meter: this.awareness, label: "CCTV" };
+    }
+
     if (this.bypassed || !active || !this.cameraMesh) {
       this.awareness = Math.max(0, this.awareness - dt * 1.8);
       return { state: this.state(), meter: this.awareness, label: "CCTV" };

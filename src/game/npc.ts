@@ -122,6 +122,14 @@ class NpcAgent {
     this.senseTimer = Math.min(this.senseTimer, this.senseInterval);
   }
 
+  investigate(position: Vector3): void {
+    if (!this.enabled || this.state === "ALERT") return;
+    this.lastSeenPosition = position.clone();
+    this.investigateTimer = this.config.security ? 4.6 : 3.1;
+    this.awareness = Math.max(this.awareness, this.config.security ? 0.3 : 0.24);
+    this.refreshState();
+  }
+
   private updatePatrol(dt: number): void {
     if (this.state === "ALERT") return;
 
@@ -249,6 +257,15 @@ export class NpcSystem {
         color: new Color3(0.31, 0.19, 0.09),
       }, onAlert, addShadowCaster),
     ];
+
+    window.addEventListener("cuma-gadget-decoy", (event) => {
+      const detail = (event as CustomEvent<{ x: number; y: number; z: number }>).detail;
+      if (!detail || !Number.isFinite(detail.x) || !Number.isFinite(detail.y) || !Number.isFinite(detail.z)) return;
+      const point = new Vector3(detail.x, detail.y, detail.z);
+      for (const agent of this.agents) {
+        if (Vector3.Distance(agent.root.position, point) <= 13.5) agent.investigate(point);
+      }
+    });
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
