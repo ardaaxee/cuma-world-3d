@@ -11,7 +11,8 @@ export class InteractionPromptGuard {
   ) {
     this.observer = new MutationObserver(() => this.refresh());
     this.observer.observe(missionStatus, { childList: true, characterData: true, subtree: true });
-    this.observer.observe(interaction, { childList: true, characterData: true, subtree: true });
+    this.observer.observe(interaction, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    this.observer.observe(document.body, { attributes: true, attributeFilter: ["data-operation-step"] });
     this.refresh();
   }
 
@@ -36,7 +37,9 @@ export class InteractionPromptGuard {
   private isActionable(state: MissionUiState, label: string): boolean {
     if (!label) return false;
     if (label === "ANA YAKLAŞIMI SEÇ" || label === "YAN YAKLAŞIMI SEÇ") return state === "PLANNING";
-    if (label === "TESLİMAT KAYDINI DOĞRULA") return state === "INFILTRATE";
+    if (label === "TESLİMAT KAYDINI DOĞRULA") return state === "INFILTRATE" && document.body.dataset.operationStep === "verify";
+    if (label === "TEK KULLANIMLIK ERİŞİM KODUNU AL") return state === "INFILTRATE" && document.body.dataset.operationStep === "access";
+    if (label === "TESLİMAT MANİFESTİNİ EŞLEŞTİR") return state === "INFILTRATE" && document.body.dataset.operationStep === "manifest";
     if (label === "BÖLGEDEN AYRIL") return state === "EXTRACT";
     if (label === "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK") return state === "INFILTRATE" || state === "EXTRACT";
     if (label === "CCTV DEVRE DIŞI" || label.startsWith("ÖNCE CCTV") || label === "CCTV FIRSATI HAZIR") return false;
