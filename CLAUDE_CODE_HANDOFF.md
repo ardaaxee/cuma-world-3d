@@ -109,7 +109,7 @@ Real-device checks still pending:
 
 Important CI note: the job-step endpoint showed a stale in-progress snapshot for roughly 50 minutes after run `33244796378` had already completed. For disputed final status, prefer the workflow run status plus artifact/job log evidence.
 
-## Milestone 03 — Connected Back Office + Door / Access Depth (implemented)
+## Milestone 03 — Connected Back Office + Door / Access Depth (verified)
 
 Gameplay commit: `b965fe81cb16e09bec1be2f6f090e7b9b11786dd`
 Commit message: `feat: expand back office and access routes`
@@ -117,20 +117,17 @@ Commit message: `feat: expand back office and access routes`
 Workflow run: `33245899904` (#131), dispatched against this branch for the exact
 gameplay commit.
 
-Verified green on that run: character packaging, audio detection, npm install,
-**Typecheck and build game runtime**, native Capacitor Android generation,
-Android toolchain and Android 16 SDK packages (steps 1-11).
+Completed SUCCESS in 2m57s (09:36:45 -> 09:39:41) through TypeScript/Vite, native
+Capacitor Android generation, Android 16 SDK, debug APK, Play AAB, SHA/build
+manifest and artifact upload.
 
-**APK/AAB NOT CONFIRMED.** Step 12 `Build test APK and Play App Bundle` was still
-reported in progress ~55 minutes after it started, with no artifact and no
-downloadable job log. No APK/AAB success is claimed for Milestone 03.
+Artifact `CUMA-WORLD-Android-Play-Build`, 23695981 bytes,
+sha256 `778ed2dc08a0be8fb5fc076a10414ce1e0e069608a7518cf4e6479013dd5815c`.
 
-Runs #129 and #130 showed the same stale-snapshot behaviour and both turned out to
-have finished in under three minutes, so this is most likely the same API lag
-rather than a real failure — but that is an inference, not evidence. Before
-treating Milestone 03 as fully CI-verified, re-check
-`https://github.com/ardaaxee/cuma-world-3d/actions/runs/33245899904` for the
-artifact, or re-dispatch the workflow for commit `b965fe8`.
+Note for whoever re-checks: the job-step endpoint again reported step 12 as still
+running for roughly an hour after the run had actually finished. This is the third
+run in a row with that behaviour. Trust the run artifact and the job log, never the
+step list.
 
 `npm run build` passed locally with a clean `tsc --noEmit`.
 
