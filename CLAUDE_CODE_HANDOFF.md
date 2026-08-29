@@ -71,28 +71,68 @@ The style target is an original CUMA WORLD spy-thriller in the broad quality cla
 
 Do not create parallel replacements unless a refactor is explicitly justified and preserves behavior.
 
-## Active milestone
+## Milestone 01 — Hearing + Social Stealth Foundation (implemented)
 
-Implement `docs/CLAUDE_NEXT_TASK.md`:
-**Hearing + Social Stealth Foundation**.
+HEAD: `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
+Commit: `feat: add hearing and zone suspicion foundation`
 
-The milestone must add:
-- player noise model
-- NPC hearing integrated into existing investigation/search
-- PUBLIC / STAFF / RESTRICTED zone suspicion foundation
-- gradual recovery after leaving inappropriate zones
+Files added:
+- `src/game/noise.ts` — authoritative player noise model
+- `src/game/zones.ts` — PUBLIC / STAFF / RESTRICTED access-zone model
+- `src/game/stealth-signals.ts` — compact noise/zone HUD readout
+- `src/stealth-signals.css`
 
-It must preserve current gadgets, cover, CCTV, routes, mission chain, controls, lifecycle and graphics tiers.
+Files changed:
+- `src/game/npc.ts` — hearing folded into the existing awareness/investigation system
+- `src/game/character.ts` — real landing feeds a noise burst
+- `src/game/runtime11.ts` — feeds the noise/zone models and owns the new HUD
 
-After implementation, STOP and report:
-- commit SHA
-- files changed
-- behavior added
-- `npm run build` result
-- GitHub Actions run ID/status
-- what still requires real-device testing
+Behaviour added:
+- One noise model derived from the existing locomotion/cover state. Named,
+  tunable levels for idle / crouched / walking / running plus landing bursts.
+  Fixed impulse pool, no per-frame allocation.
+- NPC hearing works outside the vision cone. Heard noise raises awareness only
+  to a loudness-derived ceiling hard-capped below ALERT, so footsteps can never
+  raise the facility on their own: walking peaks at CURIOUS, only a close
+  sprint reaches SUSPICIOUS.
+- Heard noise creates an investigation point at the sound origin and reuses the
+  existing investigation / last-known-position / search behaviour. A cooldown
+  keeps guards searching where the sound was instead of tracking the player.
+- One occlusion ray muffles sound through geometry without silencing it; LOW
+  tier substitutes a flat attenuation and keeps hearing working.
+- DECOY routes through the same model with a strictly higher awareness floor
+  (0.46) and reach (13.5) than any incidental movement noise.
+- Zone volumes over the existing market and service-route geometry. Presence
+  alone builds suspicion in STAFF/RESTRICTED, amplifies NPC awareness gain,
+  and eventually draws one security check. Returning to PUBLIC recovers;
+  crouch, cover and earned staff access reduce the pressure.
+- Current zone published on `document.body.dataset.zone`.
 
-Do not automatically begin the next milestone until the active milestone is green.
+Reusable API for later milestones: `classifyZone`, `getPlayerZone`,
+`getZoneSuspicion`, `setZoneAccessGranted` (credential/intel hook),
+`resetZonePresence`.
+
+Preserved untouched: controls, cover, gadgets, CCTV, route choice, the
+ACCESS -> MANIFEST -> VERIFY -> EXTRACT chain, security broadcasts, settings and
+debrief pause behaviour, graphics tiers, Android lifecycle handling.
+
+Validation: `npm run build` passes. Boot chunk is byte-identical to the previous
+build (35087 bytes); the added code lands entirely in the lazy runtime chunk.
+
+Android workflow does not auto-run on this branch — `android-play-runtime.yml`
+only triggers on push to `chatgpt/android-play-runtime`. Run it here with
+`workflow_dispatch` against `claude/full-game-development`.
+
+Not verified: any real-device behaviour. See the device notes below.
+
+## Requires real-device testing
+
+- Whether the noise/zone readout is legible and uncluttered in landscape.
+- Whether hearing distances feel fair with touch controls rather than on paper.
+- Whether the zone suspicion rate is too aggressive around the back-office
+  objective, which sits inside the RESTRICTED volume by design.
+- Performance of the added occlusion ray on MEDIUM/HIGH with three agents.
+- Pause/background/resume with noise state reset.
 
 ## Planned next milestone after hearing/zone foundation
 
