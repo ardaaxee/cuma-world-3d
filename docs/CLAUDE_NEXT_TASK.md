@@ -1,4 +1,4 @@
-# CLAUDE NEXT TASK — Milestone 06: Cinematic Mission Presentation + Feedback + Camera Polish
+# CLAUDE NEXT TASK — Milestone 07: Layered Audio World + Spatial Stealth Feedback
 
 Read `CLAUDE.md`, `CLAUDE_CODE_HANDOFF.md`, `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`, `docs/CLAUDE_007_STYLE_GUIDE.md`, and `docs/CHARACTER_PIPELINE.md` before editing.
 
@@ -6,345 +6,551 @@ Work ONLY on branch `claude/full-game-development`.
 Do not modify `main`.
 Do not create a PR.
 
-Current verified gameplay baseline before this milestone:
-- Milestone 05 gameplay: `ecec0a8d65cacc6b461bdf469ecc070eff00185c`
-- Milestone 05 handoff: `c574a7e495ce52f053ad8111be4f0b3ea9eae77d`
-- Android workflow run `33271072252` (#134): SUCCESS on the exact gameplay SHA with `MISSION_GRAPH_OK 117`, `CHARACTER_RUNTIME_OK 53`, character GLB validation, debug APK, Play AAB and artifact upload.
+Current verified baseline before this milestone:
+- Milestone 06 gameplay: `53d9e066929dbb4eadaa21b40a69e3ef240bb978`
+- Milestone 06 handoff: `209942424bbb674e5bdbebebc2b63f2e7ab225f2`
+- Android workflow run `33276421355` (#135): SUCCESS on the exact gameplay SHA with `PRESENTATION_OK 96`, `MISSION_GRAPH_OK 117`, `CHARACTER_RUNTIME_OK 53`, presentation regression guards, CHARACTER REPORT, debug APK, Play AAB and artifact.
+- Packaged CI bootstrap baseline: `24711` bytes.
 
-Milestone 05 is complete and verified. Do not rework the mission graph, save system, typed MissionResult, alternate solutions, opportunities, NPC routine seed system, character pipeline, facility security, door system or cover system unless a minimal integration change is required by this presentation milestone.
+Milestone 06 is verified. Do not rework its cinematic, typed presentation contract, sprint-FOV fix, stationary turn, character pipeline, mission graph, facility security, door/access, cover, noise/hearing, NPC routine or save systems except for minimal audio integration.
 
 ## Goal
 
-Make the operation feel intentionally directed and cinematic from the moment the player enters the world, without turning the game into a non-interactive cutscene or adding heavy visual effects.
+Make CUMA WORLD sound like one coherent physical stealth space instead of a city loop plus two generic footstep files.
 
-This milestone should improve:
-- mission entry / establishing presentation
-- objective / intel / opportunity / security feedback
-- subtle audio + haptic language
-- third-person camera feel
-- player turn / locomotion presentation
-- readable guard search/watch posture cues
+Build a mobile-first layered audio system that improves:
+- locomotion and landing weight
+- acoustic difference between outdoor / market / back-of-house / loading spaces
+- doors, cart and physical interactions
+- gadgets
+- mission/security presentation
+- spatial readability of nearby world sounds
+- pause/resume and Android audio lifecycle
 
-The target is an original grounded contemporary spy-thriller presentation. Do not copy another game's title cards, camera shots, UI, sound cues, dialogue, cinematics, character poses or proprietary assets.
+The game remains an original contemporary spy-thriller. Do not copy or rip music, ambience, UI sounds, weapon sounds, dialogue, sirens or sound design from another game, film or franchise.
 
-No combat or weapon work belongs in this milestone.
-Full environmental audio layering is Milestone 07; keep audio work here limited to short presentation cues and existing systems.
+No combat/weapon audio belongs in this milestone.
+Do not add dialogue, voice acting, lip-sync or a soundtrack system.
 
----
-
-# Part A — One lightweight presentation owner
-
-Add ONE small presentation/cinematic owner, preferably something like `src/game/cinematic-presentation.ts` or an equivalent architecture-native name.
-
-Do not create:
-- a second render loop
-- a second gameplay controller
-- a second mission controller
-- a permanent second camera system
-- a generic timeline engine
-
-Prefer driving the existing `UniversalCamera` already owned by `GameRuntime`.
-
-The presentation owner should support at minimum:
-- fresh-run mission intro active/inactive state
-- elapsed/normalized progress
-- skip
-- completion callback/promise
-- Reduced Motion behavior
-- pause-safe progression through runtime `dt`, not an uncontrolled wall-clock timeout chain
-
-The presentation owner must allocate any reusable vectors/shot data once, not every frame.
+The authoritative gameplay noise/hearing model from Milestone 01 is NOT the audio renderer. Audio presentation must never silently change AI hearing radius, facility heat or stealth rules.
 
 ---
 
-# Part B — Fresh-run mission intro
+# Part A — Audit current audio first
 
-Current behavior hides the boot screen and immediately shows HUD/mobile controls as soon as `GameRuntime.start()` begins. Replace that abrupt transition with a short authored mission-entry presentation.
+Inspect before editing:
+- `src/game/audio.ts`
+- `src/game/ui-audio-feedback.ts`
+- `src/game/presentation-events.ts`
+- `src/game/runtime11.ts`
+- `src/game/character.ts` landing path
+- `src/game/noise.ts`
+- `src/game/doors.ts`
+- `src/game/delivery-cart.ts`
+- `src/game/gadgets.ts`
+- `src/game/facility-security.ts`
+- `.github/workflows/android-play-runtime.yml`
+- current archive/public/dist audio packaging
 
-### When to play
+Current known runtime audio:
+- `city_ambience.wav`
+- `footstep_a.wav`
+- `footstep_b.wav`
+- `GameAudio` currently uses `HTMLAudioElement`
+- footstep cadence is timer-based
+- `UiAudioFeedback` owns a separate small WebAudio context for typed presentation blips
 
-Play the intro only for a genuinely fresh run.
+Measure/report the actual packaged assets when present:
+- filename
+- bytes
+- container/codec where inspectable
+- sample rate
+- channel count
+- duration
+- total packaged audio bytes
 
-A safe pattern is:
-1. inspect the MissionDirector state before `acknowledgeBriefing()` changes BRIEFING -> RECON
-2. remember whether this runtime was created from BRIEFING
-3. acknowledge/persist briefing exactly once as before
-4. `playMissionIntro()` is a no-op for restored RECON/PLANNING/INFILTRATE/EXTRACT/COMPLETE saves
-
-Do not add a save-schema field just for the intro unless absolutely required.
-Do not replay the intro after background/resume in the same runtime.
-
-### Duration / camera language
-
-Normal motion target: roughly 3.0–4.5 seconds total.
-
-Use a small number of authored beats, for example:
-- establishing view of the Fresh Market exterior / operation space
-- controlled move or cut that reveals the service/loading side or operational depth
-- settle cleanly into the existing third-person shoulder camera behind the player
-
-Exact coordinates must be chosen after inspecting the real geometry.
-Do not invent a camera path that passes through walls, ceilings or solid props.
-Validate authored shot lines/positions against the real world geometry.
-
-Prefer restrained easing / smoothstep. No whip pans, excessive shake, Dutch-angle gimmicks, neon sweeps or aggressive depth effects.
-
-At completion or skip:
-- restore the same gameplay camera/yaw/pitch ownership used before this milestone
-- call the existing third-person camera update with a forced/safe settle where appropriate
-- leave no camera offset or stale cinematic target behind
-
-### Input lock
-
-During the intro:
-- render the world normally
-- do not allow player movement/look/interact/gadget actions to advance gameplay
-- do not accidentally consume a queued jump/interact into the first gameplay frame
-- do not let hidden desktop keyboard input move the player while mobile controls are hidden
-
-It is acceptable to freeze gameplay simulation for these few seconds as long as rendering/presentation continues and pause/resume remains safe.
-
-Do not change mission progress, facility heat, NPC knowledge or route state merely because the intro is playing.
-
-### UI title card
-
-Show a restrained original title card, for example a structure such as:
-- `CUMA WORLD · OPERASYON`
-- mission/location line derived from this fictional operation (Fresh Market / operation codename)
-- optional small objective-context line
-
-Keep it compact and readable in landscape mobile safe areas.
-Do not imitate another franchise's title typography or exact layout.
-
-A small `ATLA`/skip affordance is allowed. It must be touch-friendly but visually secondary.
-
-### Main bootstrap ownership
-
-Keep HUD/mobile controls hidden while the intro is active.
-A preferred integration is for `GameRuntime` to expose a small `playMissionIntro(): Promise<void>` or equivalent runtime API so `main.ts` can:
-- start the render loop
-- unlock audio from the user's original button gesture when possible
-- hide boot
-- await/observe intro completion
-- then show HUD + mobile controls
-
-Do not pull Babylon/runtime world modules back into the bootstrap chunk. The 40% Milestone 05 boot reduction must remain materially intact.
+Do not invent asset metadata.
 
 ---
 
-# Part C — Reduced Motion, skip, pause and lifecycle
+# Part B — One gameplay/world audio owner
 
-Reduced Motion is a first-class behavior, not a CSS afterthought.
+Refactor toward ONE authoritative runtime audio owner, preferably keeping `GameAudio` as the public owner rather than creating a competing AudioManager.
 
-When Reduced Motion is enabled:
-- no long camera fly-through
-- use one safe static/near-static establishing composition or a much shorter blend
-- title card may fade without sweeping/pulsing motion
-- total presentation should be clearly shorter
+It may use small dependency-light helper modules, e.g.:
+- `audio-model.ts` — pure gait/mix/state logic
+- `audio-events.ts` — typed world-audio cue contract
+- `audio-surfaces.ts` — acoustic/surface classification
+- `audio-voices.ts` — optional voice-pool helper
 
-Skip behavior:
-- one press/tap
-- idempotent
-- immediately reaches a valid gameplay camera state
-- no queued player action leaks through
-- no duplicate completion event
+But there must still be one runtime owner that creates/controls the gameplay AudioContext / buses / voices.
 
-Pause/background during intro:
-- cinematic progression freezes while paused/hidden
-- resume continues cleanly
-- no duplicated listeners/timers
-- no promise left unresolved forever
-- pagehide/pageshow must not restart the intro
+Preferred architecture:
+- one AudioContext after user gesture
+- one master gain
+- category buses such as ambience / world SFX / player SFX / presentation, only if useful
+- a bounded spatial voice pool
+- one listener update path
+
+Do not create one AudioContext per sound.
+Do not create a second requestAnimationFrame loop.
+Do not create a timer per sound source.
+
+### UiAudioFeedback consolidation
+
+Milestone 06's typed presentation cues must remain.
+
+If practical, fold `UiAudioFeedback`'s synthesis into `GameAudio` so there is one audio context and one volume owner. `UiAudioFeedback` may become a pure cue-shape helper or be removed if cleanly replaced.
+
+If keeping it separate is demonstrably safer, document why and ensure there are still no duplicate cues or multiple contexts after repeated runtime starts. Preferred outcome is one context.
+
+`main.ts` should not need to unlock two independent audio engines if one owner can handle it.
 
 ---
 
-# Part D — Typed presentation events instead of DOM scraping
+# Part C — Safe asset loading + procedural fallback
 
-`MissionFeedback` and `UiAudioFeedback` currently observe DOM mutations and parse HUD text. Remove that brittle path in this milestone, similar in spirit to Milestone 05's typed MissionResult cleanup.
+Use only local packaged assets with known provenance.
+No runtime internet fetch to remote hosts.
+No random web sound downloads.
+No unpinned third-party binary audio.
 
-Create one small dependency-light typed presentation-event contract, for example `src/game/presentation-events.ts`.
+Existing WAV files may remain the real sampled foundation.
 
-Do not create a generic event bus framework. A typed CustomEvent contract is enough.
+For missing optional sounds, use a restrained procedural WebAudio fallback rather than failing gameplay. Procedural synthesis may cover short non-musical cues such as:
+- door latch/thump
+- landing thud
+- cart wheel/stop texture
+- scan/jam confirmation
+- security pressure accent
 
-Support meaningful event kinds such as:
-- mission objective/stage update
-- intel discovered
-- optional objective completed
-- opportunity unlocked/used
-- facility WATCH / SEARCH / HIGH_ALERT transition
-- gadget cooldown ready (only if implemented cleanly through the existing gadget refresh path)
+Do not synthesize fake speech.
+Do not build a song/music generator.
 
-Events should carry the already-known display label/detail needed by presentation, or stable ids that can be mapped dependency-light. Do not make the feedback layer regex HUD prose.
+A missing optional audio file must never break boot, movement, mission progression or interaction.
 
-### MissionFeedback
+Avoid huge new binary assets. If a future asset contract is added, document it without downloading restricted content.
 
-Refactor `MissionFeedback` so it consumes typed presentation events.
-Remove its `MutationObserver` dependency for objective/intel/awareness feedback.
-Do not call `text.match()` to infer gameplay state.
+---
 
-Use restrained feedback hierarchy:
-- objective/stage: clear but not giant
-- intel/optional: smaller positive confirmation
-- opportunity: short tactical confirmation
-- WATCH: subtle
-- SEARCH: stronger
-- HIGH_ALERT: strongest, but still no giant screen takeover or camera shake
+# Part D — Audio asset audit in CI
 
-Do not duplicate the existing permanent HUD meters/chips.
+Add a lightweight audio audit script, e.g. `ci/audit_audio_assets.py`, using the standard library where practical.
 
-### UiAudioFeedback
+For WAV assets report:
+- bytes
+- channels
+- sample rate
+- sample width/bit depth where available
+- frame count
+- duration
 
-Refactor `UiAudioFeedback` to consume the same typed events rather than observing/parsing DOM.
+Print a clear `AUDIO REPORT` in CI.
 
-Keep this milestone's sounds short and synthetic/local through the existing WebAudio approach; Phase 07 owns full audio content.
+Recommended validation rules:
+- malformed packaged WAV -> fail if that file is declared/packaged
+- absurd sample rate/channel count -> fail or warn with a documented threshold
+- excessively large single/total audio payload -> fail/warn using measured baseline and reasonable Android headroom
+- missing optional file -> report fallback, do not fail
 
-Add a small cue vocabulary such as:
-- mission intro sting
-- objective update
-- intel/optional confirmation
-- opportunity confirmation
-- WATCH / SEARCH / HIGH_ALERT
-- gadget ready if supported
+Do not require FFmpeg or another heavyweight dependency just for this audit unless already available and clearly justified.
+
+The workflow must still prove the audio assets actually land in `dist/assets/audio` when packaged and therefore in Capacitor Android output.
+
+---
+
+# Part E — Distance-based player footstep scheduler
+
+Current footstep timing is a clock derived from speed. Replace it with a small deterministic locomotion/gait scheduler based primarily on actual horizontal distance travelled, so speed changes do not make steps feel detached.
+
+Suggested pure state:
+- accumulatedDistance
+- next foot / alternating sample index
+- locomotion mode: CROUCH / WALK / RUN
+- optional start/reset handling
+
+Use tuned stride distances rather than animation-root motion.
+
+Requirements:
+- standing still -> no repeated footsteps
+- tiny joystick jitter -> no footstep spam
+- crouch -> slower/quieter cadence
+- walk -> normal cadence
+- actual RUN + moving -> faster/stronger cadence
+- changing WALK <-> RUN should not double-fire a step
+- pause/cinematic must not accumulate a giant delayed footstep
+- no per-frame random
+
+Do NOT change authoritative movement speed.
+Do NOT change the gameplay noise values merely to match the audio.
+
+Pitch/level variation should be deterministic from a small repeating or seeded pattern, not `Math.random()` every step.
+
+---
+
+# Part F — Surface / acoustic classification
+
+Create a small authored surface/acoustic classifier grounded in the real current map.
+
+At minimum distinguish useful broad contexts such as:
+- outdoor plaza / alley concrete
+- market interior hard floor
+- staff/back-office interior
+- loading/service industrial area
+
+Use actual geometry/volumes/coordinates after inspection. Do not invent an enormous material system.
+
+Preferred options:
+- classify by authored acoustic volumes, or
+- classify the actual ground mesh on a footstep event if metadata can be added cleanly
+
+Do NOT raycast every frame just for audio.
+A ray on actual footstep emission is acceptable if cheap and needed.
+
+Even with only the two current footstep samples, make surfaces read differently through restrained processing:
+- playback-rate range
+- gain
+- filter/EQ
+- optional short room response
+
+Do not make surfaces cartoonishly different.
+
+Expose a small typed `AudioSurface`/`AcousticZone` contract so future real samples can drop into the same system.
+
+---
+
+# Part G — Layered ambience / indoor-outdoor transition
+
+Preserve `city_ambience.wav` as a legal/local ambience source when packaged.
+
+Make ambience respond to broad acoustic space rather than playing at one fixed volume everywhere.
+
+Examples:
+- outdoor: city ambience open/full
+- market interior: lower city bed + gentle low-pass / interior room tone
+- back office/restricted rooms: more enclosed presentation
+- loading/service: partially open exterior/industrial character
+
+Use restrained crossfades, not abrupt volume jumps at a boundary.
+
+A small procedurally generated filtered-noise room tone is acceptable if it is stable and cheap.
+Do not generate per-frame noise buffers.
+Generate reusable buffers/nodes once.
+
+No dynamic soundtrack/music in this milestone.
+
+### Security tension layer
+
+Facility state is already known and displayed.
+A subtle non-musical tension layer may respond to:
+- CALM
+- WATCH
+- SEARCH
+- HIGH_ALERT
 
 Rules:
-- short duration
-- restrained gain
-- no copyrighted/ripped sounds
-- no continuous siren layer yet
-- volume setting still applies
-- missing AudioContext never breaks gameplay
+- it must not reveal information the HUD/facility state does not already expose
+- no loud continuous siren
+- no commercial-music imitation
+- no melody/theme
+- crossfade smoothly
+- HIGH_ALERT may be more tense, but still allow footsteps/world sounds to remain readable
+- recovery fades cleanly back toward calm
 
-### Haptic language
-
-Use distinct but restrained patterns for important transitions.
-Do not vibrate continuously or repeatedly every frame.
-Only fire once when an event genuinely occurs.
+Reduced Motion does not need to change audio intensity unless there is a clear accessibility reason; do not couple unrelated settings.
 
 ---
 
-# Part E — Gadget cooldown-ready feedback
+# Part H — Spatial world audio
 
-The existing `GadgetToolkit` already refreshes cooldown UI on a 250 ms global timer. Do not add another timer.
+Add limited spatialization for sounds that have a real world origin.
 
-If cleanly possible:
-- remember whether each gadget was previously cooling down
-- when it crosses from cooldown -> ready, publish one typed `GADGET_READY` presentation event
-- do not publish READY for gadgets that were already ready at boot
-- do not spam while the panel is open
+Candidate cues:
+- door interaction
+- delivery cart movement/stop
+- DECOY at its actual target point
+- nearby environmental interaction
+- optional NPC local acknowledgement only if an existing non-voice sound exists; do not invent speech
 
-Do not rewrite gadget mechanics in this milestone.
-Preserve SCAN/JAM/DECOY behavior exactly.
+Use a bounded voice pool.
+Suggested mobile target: roughly 4–8 concurrent spatial one-shots/loops, chosen after profiling/architecture review.
 
----
+Use WebAudio `PannerNode` or another native browser primitive if stable.
 
-# Part F — Third-person camera polish
+Listener should follow the active gameplay camera/player orientation using cached vectors/values.
+Do not allocate new arrays/vectors for audio listener math every frame.
 
-### Fix sprint-FOV ownership
+### Spatial attenuation
 
-Current runtime sets `this.running = strength > 0.86`, which ties sprint FOV to joystick magnitude instead of actual RUN state.
+Use conservative max distances appropriate to the small market map.
+Sounds should not be audible at full level through the entire facility.
 
-Fix it.
+### Audio occlusion
 
-Sprint camera/FOV must require actual running gameplay state, e.g. all relevant conditions such as:
-- RUN held
-- not crouched
-- meaningful horizontal speed
-- not in an incompatible cinematic/paused state
+If adding occlusion, keep it cheap:
+- one ray at sound start for short one-shots, OR
+- a low-frequency bounded check for a long cart/loop sound
 
-Pushing the joystick fully without RUN must NOT widen sprint FOV.
-Holding RUN while stationary must NOT widen sprint FOV.
+A blocked source may get lower gain and a low-pass effect.
+Do not raycast every spatial voice every render frame.
+Do not modify AI hearing based on audio occlusion; gameplay noise already owns that truth separately.
 
-Keep the effect subtle.
-Reduced Motion keeps the smaller FOV delta.
-
-### Camera obstruction
-
-Preserve `resolveThirdPersonCameraCollision()` and existing cover shoulder behavior.
-Do not regress obstruction-safe camera pull-in.
-
-Test authored intro transition back into:
-- normal open space
-- cover
-- near a wall/doorway
-
-No persistent wall clipping after cinematic completion.
-
-### Landing / camera feel
-
-The character already owns a landing camera kick. Do not create a second competing landing-kick system.
-If tuning is needed, coordinate existing character target movement with the camera rather than stacking another shake.
-
-No screen shake spam.
+LOW tier may use cheaper equal-power/2D treatment while keeping the mechanic/readability.
 
 ---
 
-# Part G — Player turn / stance presentation
+# Part I — Landing audio
 
-The character pipeline milestone already owns imported animation resolution and crossfade. Preserve it.
+`PlayerCharacter` already knows when a landing occurred and the impact speed used for gameplay noise/camera/haptic.
 
-Do not require new animation assets to complete this milestone.
+Route one typed landing presentation signal to `GameAudio` without creating a second landing detector.
 
-Improve presentation using the existing visual root/state where safe:
-- moving player keeps current movement-facing behavior
-- when standing still, a large camera/body yaw difference may resolve through a restrained turn-to-facing behavior instead of the body feeling permanently disconnected from the shoulder camera
-- use a dead zone so tiny camera movement does not rotate the whole body
-- do not instantly snap the character
-- cover should remain authoritative; do not rotate the body through the cover surface
-- crouch must remain visually coherent
+Use the existing landing event/impact truth.
 
-If a future GLB has turn/additive clips, keep the architecture compatible, but do not fabricate an unavailable clip.
+Landing sound should scale within a bounded range by impact strength:
+- light landing
+- normal landing
+- heavier legal gameplay landing
 
-Do not let visual turn logic alter the capsule collider, player position, noise model or mission logic.
+No bone-breaking or graphic injury audio.
 
----
+Do not change jump physics.
+Do not change landing gameplay-noise thresholds.
+Do not stack duplicate haptic/camera systems.
 
-# Part H — Guard/watch/search visual cues
-
-Use the existing NPC hierarchy and Milestone 04/05 awareness + routine states.
-Do not create a second animation state machine.
-
-Add lightweight authored/procedural presentation cues so a player can visually read broad guard intent even without dedicated animation assets.
-
-Examples, adapt to actual NPC hierarchy:
-- WATCH: slightly more deliberate head/body scan at authored dwell points
-- SEARCH: clearer pause/inspect/turn cadence around assigned search point
-- HIGH_ALERT: increased urgency in locomotion/turn response without adding knowledge
-- recovery: settle back to routine cleanly
-
-Workers must not suddenly adopt security-guard posture.
-No combat/takedown/weapon poses.
-No cartoonish exaggerated bobbing.
-Reduced Motion should reduce nonessential oscillation while preserving readable orientation/state.
-
-Do not add per-frame random motion.
-Reuse existing routine/sweep phase and facility state.
+If no landing sample exists, use a short procedural thud filtered by surface/context.
 
 ---
 
-# Part I — Performance / architecture
+# Part J — Door/access audio
 
-Presentation must stay mobile-first.
+Give the existing one Door/Access system restrained physical feedback.
+
+At minimum distinguish:
+- successful manual door movement/latch
+- locked/refused access
+- automatic security-door close where appropriate
+
+Do not change access rules.
+Do not change door collision.
+Do not make automatic security closure emit gameplay hearing noise unless the authoritative noise design explicitly already says it should; presentation audio and gameplay noise are separate.
+
+If the existing door system needs to publish a typed audio event, make it small and dependency-light rather than importing the audio engine into `doors.ts`.
+
+Avoid a separate per-door audio update loop.
+
+---
+
+# Part K — Delivery cart audio
+
+The Milestone 05 delivery cart already has authored positions and movement.
+
+Add audio that follows the actual cart state:
+- short start/roll texture while moving
+- stop/settle cue
+- position follows cart
+
+Do not add freeform physics.
+Do not add a new movement timer.
+Use the existing cart update/state as truth.
+
+The existing authoritative `CART_NOISE_LOUDNESS` gameplay impulse remains the AI-hearing truth. Presentation volume must not change that value.
+
+---
+
+# Part L — Gadget audio
+
+Keep SCAN/JAM/DECOY gameplay behavior intact.
+
+Add distinct original restrained cues:
+- SCAN: local short analytic pulse
+- JAM: local electronic suppression texture, bounded duration
+- DECOY: spatial sound at the actual decoy target point
+- GADGET_READY: keep Milestone 06's subtle typed presentation cue
+
+Do not turn JAM into a loud continuous buzz that masks gameplay.
+Do not let the audio reveal CCTV/guard locations that the mechanics do not reveal.
+Do not create a second gadget cooldown timer.
+
+DECOY audio location should match the existing gameplay decoy point, but AI investigation continues to use the existing authoritative gameplay event, not the audible volume.
+
+---
+
+# Part M — Mission / facility presentation integration
+
+Keep the Milestone 06 typed `presentation-events.ts` contract.
+Do not return to DOM scraping.
+
+The audio owner may consume these existing cues:
+- `MISSION_INTRO`
+- `MISSION_OBJECTIVE`
+- `STAGE_RESOLVED`
+- `INTEL_DISCOVERED`
+- `OPTIONAL_COMPLETED`
+- `OPPORTUNITY_USED`
+- `FACILITY_WATCH`
+- `FACILITY_SEARCH`
+- `FACILITY_HIGH_ALERT`
+- `GADGET_READY`
+
+Do not duplicate the same cue through both `UiAudioFeedback` and `GameAudio` after consolidation.
+Exactly one audible response per event.
+
+For the cinematic intro, add only a restrained short mission-start sting/bed. Do not add copyrighted cinematic music.
+
+---
+
+# Part N — Mix priorities and ducking
+
+Create a small understandable mix model with named constants.
+
+Suggested priority intent:
+1. critical gameplay-local cues (nearby door/cart/landing)
+2. player footsteps
+3. presentation confirmation
+4. ambience/tension bed
+
+Do not let ambience overpower footsteps/interactions.
+
+When a strong presentation cue occurs, optional light ducking of ambience is allowed, e.g. a few dB for a fraction of a second. Keep it subtle.
+
+Do not normalize/compress everything aggressively.
+No clipping.
+Master volume 0 must make all game audio silent and must not keep hidden loops consuming significant work.
+
+---
+
+# Part O — Pause / background / resume / unlock
+
+Android/mobile lifecycle must be robust.
+
+Requirements:
+- audio begins only after a valid user gesture/unlock path
+- repeated `unlock()` calls are idempotent
+- pause/background suspends or pauses ambience/loops cleanly
+- resume restores only the loops that should be active
+- no duplicate ambience after repeated pause/resume
+- no duplicate AudioContext after page lifecycle changes
+- master volume changes apply to every category
+- mute -> unmute resumes safely
+- cinematic pause/resume does not start duplicate intro audio
+- missing/blocked AudioContext or decode failure never breaks gameplay
+
+Prefer `AudioContext.suspend()/resume()` or a similarly coherent single-owner approach once migrated.
+
+---
+
+# Part P — Performance / allocations
+
+Android-first.
 
 Rules:
-- one render loop only
-- one existing gameplay camera owner plus lightweight temporary cinematic override
-- no per-frame DOM writes for unchanged presentation state
-- no MutationObserver HUD scraping in `MissionFeedback` / `UiAudioFeedback`
-- no full-scene scan every frame for cinematic shots
-- no per-frame random animation jitter
-- cache authored shot data / reusable vectors
-- no new post-processing stack or dynamic lights
-- no large video background
-- no runtime network dependency
-- preserve LOW/MEDIUM behavior
-- preserve the Milestone 05 bootstrap improvement; report boot chunk before/after
-- keep largest chunk and total JS budgets green
+- one audio owner/context preferred
+- one listener update path
+- bounded voice pool
+- no per-source RAF
+- no per-door timers
+- no per-frame `Math.random()`
+- no per-frame audio-buffer generation
+- no full-scene audio scan
+- no per-frame raycast for surfaces
+- no per-frame occlusion ray per source
+- recycle/reuse Gain/Panner nodes where practical
+- release stopped sources cleanly
+- LOW/MEDIUM remain viable
 
-The presentation module should remain in the lazy runtime path where practical, not pull Babylon/world modules into startup.
+Report:
+- number of persistent WebAudio nodes at idle
+- maximum active spatial voices
+- packaged audio byte delta
+- total web-byte delta
+- boot/largest/total JS delta
+
+Do not pull Babylon/world graph into the bootstrap chunk.
+Milestone 06 CI bootstrap baseline is `24711` bytes.
 
 ---
 
-# Part J — Preserve all verified systems
+# Part Q — Keep gameplay noise separate
+
+This is critical.
+
+The Milestone 01 authoritative noise system controls NPC hearing.
+Audio rendering controls what the human player hears.
+
+Never derive NPC hearing directly from speaker volume, master volume, AudioContext state, asset availability or PannerNode distance.
+
+Examples:
+- muting the game must NOT make the character stealthier
+- a missing footstep WAV must NOT remove gameplay footstep noise
+- a loud local procedural cue must NOT create AI noise unless an existing gameplay mechanic explicitly reports one
+- presentation-only security-door audio must not automatically call `reportEnvironmentNoise`
+
+Add tests/guards for this separation where practical.
+
+---
+
+# Part R — Focused audio contract tests
+
+Add `ci/test_audio_runtime.mjs` or an equivalent pure contract suite with no new heavy dependency.
+
+Extract enough pure logic to test at minimum:
+- gait scheduler idle/no-spam
+- distance-based step emission
+- WALK/RUN/CROUCH transitions
+- deterministic sample/pitch variation
+- acoustic/surface classification
+- mix target selection for outdoor/interior and facility states
+- master-volume clamp/mute
+- voice-cap policy
+- typed world-audio event shape if added
+- presentation cue single-audible-owner mapping
+- gadget activation mapping
+- pause/resume state model
+- no huge delayed step after pause/cinematic reset
+
+Keep existing suites green:
+- PRESENTATION 96
+- MISSION GRAPH 117
+- CHARACTER 53
+
+Add regression guards if helpful, particularly for:
+- accidental second AudioContext owner
+- reintroduced DOM audio scraping
+- gameplay-noise imports from pure presentation audio helpers
+- per-frame random in gait selection
+
+Do not write brittle grep-only theater; if a shell guard is added, make it actually fail like the Milestone 06 regression script.
+
+---
+
+# Part S — Acceptance scenarios
+
+1. Fresh runtime after user gesture creates/unlocks the audio system once; repeated unlock calls do not duplicate context/ambience.
+2. Missing optional sound files still allow a complete playable run with procedural/silent fallbacks.
+3. Standing still produces no footstep loop/spam.
+4. WALK, RUN and CROUCH sound clearly different in cadence/weight without changing movement or AI noise.
+5. Outdoor and indoor spaces transition acoustically without abrupt hard cuts.
+6. Back-office/loading presentation is distinguishable but restrained.
+7. Landing uses the existing real landing truth; no second landing detector or physics change.
+8. Door success/locked/security-close presentation is audible without changing access/collision or unintended gameplay hearing.
+9. Delivery cart sound follows the real cart and stops cleanly.
+10. SCAN/JAM/DECOY receive distinct cues; DECOY sound is spatial at the actual target point while AI still follows authoritative gameplay noise.
+11. Facility WATCH/SEARCH/HIGH_ALERT audio layers/cues are distinct but do not expose hidden information or become a permanent loud siren.
+12. Typed presentation events still produce exactly one audible UI/presentation cue each.
+13. GADGET_READY remains single-fire.
+14. Master volume 0 silences all categories but does not affect stealth mechanics.
+15. Pause/background/resume never duplicates ambience, tension loops or cart audio.
+16. Repeated mute/unmute is stable.
+17. Spatial voice count stays capped under rapid door/gadget/cart events.
+18. LOW/MEDIUM do not require a different gameplay/audio controller.
+19. Existing cinematic M06 intro/skip/pause tests remain green.
+20. Existing mission graph, alternate routes, optional objectives, opportunities, cover, hearing, facility security, character animation and old saves remain functional.
+21. Audio audit prints the exact packaged assets and all web/Android builds remain green.
+
+---
+
+# Part T — Preserve all verified milestones
 
 Do NOT regress:
 
@@ -352,19 +558,18 @@ Milestone 01:
 - authoritative noise/hearing
 - movement/landing impulses
 - zones
-- DECOY behavior
+- DECOY gameplay behavior
 
 Milestone 02:
 - directional cover
 - observer-specific protection
-- cover-guided movement
-- cover-aware shoulder camera
+- cover camera
 
 Milestone 03:
-- connected facility
-- one Door/Access system
-- staff credential
-- front/side/utility traversal
+- facility topology
+- Door/Access
+- credential
+- front/side/utility routes
 
 Milestone 04:
 - CALM/WATCH/SEARCH/HIGH_ALERT
@@ -373,53 +578,41 @@ Milestone 04:
 - coordinated search
 - COVER STORY
 - FIELD FOCUS
-- CCTV integration
+- CCTV
 
 Character pipeline:
-- `character.ts`
+- imported GLB path
 - canonical animation resolver
 - AnimationBlender
 - optional face layer
+- fallback
 - strong GLB validator
-- 53 character contract checks
+- 53 checks
 
 Milestone 05:
 - typed mission graph
-- alternate MANIFEST/VERIFY solutions
+- alternate MANIFEST/VERIFY
 - exactly two optional objectives
 - opportunities
-- runSeed routine variation
-- typed MissionResult / regex-free debrief
+- runSeed routines
+- typed MissionResult
 - save migration
-- 117 mission graph checks
-- boot dependency reduction
+- 117 checks
+- bootstrap optimization
 
-Preserve mobile multitouch, graphics tiers, settings, pause/background/resume and Android lifecycle behavior.
+Milestone 06:
+- fresh-run cinematic
+- skip/input lock/pause behavior
+- Reduced Motion presentation
+- typed presentation cues
+- regex/MutationObserver-free feedback
+- sprint-FOV fix
+- stationary turn
+- guard posture presentation
+- 96 presentation checks
+- working regression guards
 
----
-
-# Acceptance scenarios
-
-1. Fresh run: boot -> short original cinematic establishing presentation -> clean third-person gameplay; HUD/controls do not appear early.
-2. Restored RECON/PLANNING/INFILTRATE/EXTRACT/COMPLETE save: no fresh-run intro replay.
-3. Intro can be skipped once and always lands in the same valid gameplay camera/control state.
-4. Reduced Motion uses a short/static presentation and no sweeping fly-through.
-5. Background/pause during intro freezes safely and resume does not duplicate/restart it.
-6. Hidden keyboard/touch input during intro cannot move, jump, interact or trigger a gadget.
-7. Full joystick without RUN does not trigger sprint FOV.
-8. RUN + real movement triggers subtle sprint FOV; RUN while stationary does not.
-9. Existing camera collision and cover shoulder behavior still prevents obvious wall clipping after intro.
-10. MissionFeedback no longer uses MutationObserver/text parsing for objective/intel/awareness presentation.
-11. UiAudioFeedback no longer uses MutationObserver/text parsing for intel/awareness cues.
-12. Stage/intel/optional/opportunity/facility transitions produce at most one correct presentation cue each.
-13. WATCH/SEARCH/HIGH_ALERT cues are visually/audio/haptically distinct without covering the gameplay screen.
-14. Gadget cooldown-ready cue, if implemented, fires once on cooldown -> ready and never spams boot-ready gadgets.
-15. Stationary player turn presentation is smooth, dead-zoned and does not rotate through active cover.
-16. WATCH/SEARCH/HIGH_ALERT guard posture cues improve readability without changing NPC knowledge/path truth.
-17. Existing mission alternate routes/objectives/opportunities/save/replay remain completable.
-18. Existing character 53 checks and mission 117 checks remain green.
-19. Old saves remain compatible.
-20. LOW/MEDIUM and Reduced Motion remain functional.
+Preserve mobile multitouch, settings, graphics tiers, Android lifecycle and old saves.
 
 ---
 
@@ -427,48 +620,59 @@ Preserve mobile multitouch, graphics tiers, settings, pause/background/resume an
 
 Before committing:
 - run `npm run build`
-- fix every TypeScript/Vite failure
 - run `node ci/test_character_runtime.mjs`
 - run `node ci/test_mission_graph.mjs`
-- add focused presentation/cinematic contract tests where useful, especially pure timing/state/event logic
-- verify no MutationObserver/text-match path remains in `MissionFeedback` and `UiAudioFeedback`
-- test intro state machine: normal finish / skip / Reduced Motion / pause-resume / non-fresh save
-- verify sprint-FOV predicate from actual RUN state
-- inspect camera transition points against actual collision geometry
-- verify no presentation event fires twice for one state transition
+- run `node ci/test_presentation.mjs`
+- run new audio contract tests
+- run presentation regression guards
+- run audio asset audit against the exact packaged assets available locally/CI
+- verify master volume/mute ownership from code paths
+- verify no second gameplay-noise system exists
+- verify no audio path changes AI hearing when volume/assets change
+- verify no duplicate AudioContext/ambience on unlock/pause/resume
+- verify `dist/assets/audio` packaging when source assets exist
 - verify all three web bundle budgets
-- compare bootstrap to Milestone 05 CI baseline (`25566` bytes packaged CI baseline)
+- compare bootstrap against CI baseline `24711`
 
 Suggested gameplay commit:
-`feat: add cinematic mission presentation and feedback`
+`feat: build layered spatial audio system`
 
 After push:
 - dispatch `.github/workflows/android-play-runtime.yml` on `claude/full-game-development`
-- verify the workflow for the exact gameplay commit
-- final truth comes from completed run status + job log + artifact
-- require mission 117 checks, character 53 checks, character GLB validation, build APK and AAB
-- do not claim real-device camera feel, FPS, animation quality, vibration feel or readability from CI
+- verify exact gameplay SHA
+- require completed SUCCESS from workflow run + job log + artifact
+- require `PRESENTATION_OK 96`, `MISSION_GRAPH_OK 117`, `CHARACTER_RUNTIME_OK 53`, presentation regression guards, `CHARACTER_GLB_OK`, new AUDIO checks/report, debug APK and Play AAB
+- do not claim speaker quality, stereo imaging, spatial feel or performance from CI
 
 Update `CLAUDE_CODE_HANDOFF.md` with:
 - gameplay SHA
-- cinematic/presentation API
-- fresh-run detection
-- intro duration/shots
-- skip/Reduced Motion behavior
-- input-lock behavior
-- typed presentation-event contract
-- MissionFeedback / UiAudioFeedback data flow
-- gadget-ready implementation if present
-- sprint-FOV predicate before/after
-- player turn presentation
-- guard state presentation
-- pause/resume behavior
-- test counts
+- changed files
+- audio architecture / owner
+- whether UiAudioFeedback was consolidated
+- AudioContext count/ownership
+- packaged asset audit and provenance status
+- footstep gait scheduler
+- surface/acoustic zone contract
+- ambience mix behavior
+- facility tension behavior
+- spatial voice cap and attenuation
+- occlusion strategy if any
+- landing integration
+- door audio integration
+- cart audio integration
+- gadget audio integration
+- presentation cue audio mapping
+- pause/resume/unlock behavior
+- gameplay-noise/audio separation proof
+- audio test count/result
+- presentation 96 / mission 117 / character 53 results
 - boot/largest/total JS before/after
-- workflow run id
-- APK/AAB hashes
+- audio bytes and total web bytes before/after
+- workflow run ID
+- APK hash
+- AAB hash
 - artifact id/size/digest
-- remaining real-device checks
+- real Android-device audio checks still required
 
 Then STOP.
-Do not begin Milestone 07 audio-system work in the same implementation commit.
+Do not begin Milestone 08 in the same implementation commit.
