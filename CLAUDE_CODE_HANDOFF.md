@@ -44,6 +44,9 @@ Rules:
 - `src/game/delivery-cart.ts`: authored cart movement
 - `src/game/npc-routines.ts`: authored NPC waypoint routines and per-run variant selection
 - `src/game/run-variation.ts`: deterministic runSeed mixing
+- `src/game/cinematic-presentation.ts`: the one mission-intro presentation owner
+- `src/game/cinematic-timeline.ts`: pure intro timing/skip/completion state
+- `src/game/presentation-events.ts`: typed presentation cue contract
 - `src/game/npc.ts`: NPC awareness/patrol/hearing/investigation/security communication
 - `src/game/security.ts`: CCTV gameplay
 - `src/game/cover.ts`: directional tactical cover
@@ -798,3 +801,256 @@ CI proves the build. It proves nothing about how any of this feels on a phone.
 - debrief readability on a phone now that the note block carries several lines
 - an old pre-Milestone-05 save resuming mid-INFILTRATE on a real device
 - pause/background/resume during an active routine window or a cart slide
+
+## Milestone 06 — Cinematic Mission Presentation + Feedback + Camera Polish (verified)
+
+Gameplay commit `53d9e06`. The operation opens as a short directed
+presentation and reports itself through typed cues instead of scraped HUD text.
+One render loop, one camera owner, no new effects stack, no new dynamic lights.
+
+### Cinematic API
+
+`src/game/cinematic-presentation.ts` is the one presentation owner; it drives
+the `UniversalCamera` `GameRuntime` already owns.
+
+- `GameRuntime.playMissionIntro(): Promise<void>` — resolves on completion or
+  skip, and resolves immediately on a restored save so `main.ts` can always
+  await it
+- `GameRuntime.isCinematicActive()` / `skipMissionIntro()`
+- `CinematicPresentation.begin(reducedMotion) / update(...) / skip() / dispose()`
+- `src/game/cinematic-timeline.ts` holds the pure timing state (elapsed, skip,
+  single-fire completion, segment sampling, `smoothstep`) with no Babylon
+  dependency, so the awkward parts are unit-checkable
+
+### Fresh-run detection
+
+The runtime records `mission.snapshot().state === "BRIEFING"` **before**
+`acknowledgeBriefing()` moves BRIEFING → RECON. A restored RECON / PLANNING /
+INFILTRATE / EXTRACT / COMPLETE save never plays it, and `introPlayed` stops a
+replay inside the same runtime. **No save-schema field was added** — the
+existing mission state already answers the question.
+
+### Intro shots and duration
+
+Normal motion, 4.0 s total (inside the authored 3.0–4.5 s window):
+
+| Beat | Seconds | Camera → target |
+|---|---|---|
+| Establishing | 1.5 | `(0, 7.2, −21)` → `(0, 2.4, 5)`, slow push, elevated over the plaza looking north at the market |
+| Service reveal | 1.4 | → `(16.5, 6.4, 2.5)` → `(10.2, 1.6, 11)`, revealing the loading/service side |
+| Settle | 1.1 | → the live third-person pose |
+
+Every position, and every line between them, was validated against the real
+collision geometry with a 0.45 m clearance margin: none pass through a wall,
+the market ceiling (y 4.0), the loading canopy (y 3.45), the bay beams or any
+prop.
+
+The closing beat blends into the pose `updateThirdPersonCamera` actually
+resolved that frame — the runtime stores it in `gameplayLookTarget` rather than
+recomputing the math — so the handover is exact and leaves no stale offset. The
+runtime then force-settles, which runs the existing
+`resolveThirdPersonCameraCollision()` so the camera lands collision-resolved
+whether the player is in open space, against a wall, in a doorway or in cover.
+
+### Reduced Motion
+
+One near-static composition at `(2.6, 3.4, −14.5)` → `(0, 1.6, −6.5)` held for
+0.85 s, then a 0.55 s blend — **1.4 s total, 35% of the normal duration**. No
+fly-through, no sweep or pulse; the title card fades. Reduced Motion also keeps
+the smaller sprint-FOV delta and damps guard oscillation.
+
+### Skip
+
+Any pointer press or the touch-friendly `ATLA` button. `CinematicTimeline.skip()`
+jumps to the end; `consumeCompletion()` returns true exactly once, so a double
+skip, or skipping something that already finished naturally, produces no second
+completion and no second HUD reveal. The pointer listener is registered per run
+and removed on completion, so listeners never accumulate. Skip and natural
+completion land in the identical camera/control state.
+
+### Input lock
+
+Gameplay simulation does not run during the intro — the render loop calls
+`updateCinematicFrame()` instead of `update()` — so mission progress, facility
+heat, NPC knowledge, zones, routes and security cannot move, because nothing
+that changes them is called.
+
+Input is **drained**, not ignored: `input.frame()` and `consumeJumpPressed()`
+run every cinematic frame and again at handover, so a tap or hidden desktop
+keyboard press neither moves the player during the intro nor leaks a queued
+jump or interact into the first gameplay frame.
+
+### Pause / resume
+
+The timeline advances on runtime `dt`, never a `setTimeout` chain. The existing
+`if (!this.paused)` guard therefore freezes the intro exactly as it freezes
+gameplay — there is no separate timer to suspend, nothing restarts on resume,
+and `pagehide`/`pageshow` cannot restart it. A single very long frame (a resumed
+tab) is clamped to 0.1 s so it cannot skip a beat, and the completion promise is
+always resolved, including through `dispose()`.
+
+### Typed presentation events
+
+`src/game/presentation-events.ts` — a thin typed CustomEvent contract, not an
+event bus. Cue ids:
+
+`MISSION_INTRO`, `MISSION_OBJECTIVE`, `STAGE_RESOLVED`, `INTEL_DISCOVERED`,
+`OPTIONAL_COMPLETED`, `OPPORTUNITY_USED`, `FACILITY_WATCH`, `FACILITY_SEARCH`,
+`FACILITY_HIGH_ALERT`, `GADGET_READY`.
+
+Each carries a display-ready `label` and `detail` plus a `PresentationWeight`
+(`SUBTLE` / `NORMAL` / `STRONG` / `CRITICAL`) that consumers map onto their own
+medium. Single-fire is the publisher's job: `runtime11` compares against the
+previous mission snapshot and seeds that baseline from the state it starts in,
+so a restored save does not replay transitions the player already saw. Facility
+cues fire on **escalation only** — calming down is silent.
+
+### MissionFeedback data flow
+
+`runtime11.publishMissionCues()` / `publishFacilityCue()` → typed cue →
+`MissionFeedback`. **No MutationObserver, no `text.match()`.** Weight drives
+hold time (1.9–2.6 s), haptic pattern (`[16]` → `[44,30,66]`) and priority, so a
+quiet cue never wipes a louder one still on screen. `MISSION_INTRO` is skipped
+because the title card already covers it. No banner, no screen flash, no camera
+shake, and it does not duplicate the permanent HUD chips.
+
+### UiAudioFeedback data flow
+
+Same cue stream → one short synthetic WebAudio blip per cue (0.09–0.42 s, gain
+0.022–0.04, rising for confirmations, falling for pressure). Volume setting
+still applies; a missing or blocked `AudioContext` silently costs nothing;
+nothing loops and there is no siren layer. Full environmental audio remains
+Milestone 07's.
+
+### Gadget ready
+
+Implemented inside `GadgetToolkit.refresh()`, the existing 250 ms UI timer — **no
+new timer**. A per-gadget `wasReady` map fires `GADGET_READY` only on a
+`false → true` crossing. Gadgets already ready at the first refresh are recorded
+silently (the map starts `undefined`), and a held ready state never repeats, so
+an open panel cannot spam. SCAN/JAM/DECOY mechanics are untouched.
+
+### Sprint FOV predicate
+
+| | |
+|---|---|
+| Before | `this.running = strength > 0.86` — joystick magnitude, so a full joystick at walking speed widened the FOV |
+| After | `isRunHeld() && !isCrouched() && horizontalSpeed > 1.2 && !cinematic.isActive` |
+
+Walking is input-limited to 0.82 deflection, so the speed floor only has to
+reject "RUN held while standing still"; `isRunHeld()` does the real work. Full
+joystick without RUN → no sprint FOV. RUN while stationary → no sprint FOV. RUN
+while moving → subtle FOV, smaller under Reduced Motion.
+
+### Stationary turn presentation
+
+`PlayerCharacter.setIdleFacing(yaw, dt, allowed)`. A hysteresis band, not a
+threshold: the turn starts only past `IDLE_TURN_ENTER` 1.0 rad (~57°) and stops
+once inside `IDLE_TURN_SETTLE` 0.12 rad, easing at rate 4.2. Measured: a 92°
+gap resolves in ~0.63 s and comes to rest inside the settle band without
+chattering at the boundary. Small camera movement never rotates the body.
+
+Cover is authoritative — the runtime passes `!guided`, so the body is never
+rotated through the cover surface. This writes only the visual root's yaw; the
+capsule collider, player position, noise model and mission logic are untouched,
+and the character milestone's resolver/blender/face layer are unchanged.
+
+### Guard state presentation
+
+Presentation only, on the existing NPC hierarchy — no second animation state
+machine, no added knowledge, no live player tracking.
+
+- **WATCH**: the existing deliberate scan at authored dwell points
+- **SEARCH**: a stepped turn/hold inspect cadence (`SEARCH_CADENCE_HZ` 1.6,
+  hold threshold −0.2) driven by the agent's seeded `phaseOffset`, so it is
+  deterministic and desynchronised between units
+- **HIGH_ALERT**: more urgent turn response
+- **recovery**: unchanged — the agent rejoins its routine at the nearest waypoint
+- Reduced Motion scales nonessential oscillation to 0.55 while preserving
+  readable orientation; workers never adopt security posture
+
+### Tests
+
+| Suite | Checks |
+|---|---|
+| `ci/test_presentation.mjs` | **96** |
+| `ci/test_mission_graph.mjs` | **117** |
+| `ci/test_character_runtime.mjs` | **53** |
+
+The Milestone 05 regression guards were written as `! grep -q ...`, which is
+**exempt from `set -e`** and so could never fail a build. They are replaced by
+`ci/check_presentation_regressions.sh`, which tests explicitly and was verified
+to actually fire on a reintroduced MutationObserver, reintroduced text scraping,
+the sprint-FOV bug and the `debrief → mission` boot-chain import. Its patterns
+match real usage (`new MutationObserver`, an active `.match(`) so these modules
+can still document in comments what they deliberately no longer do.
+
+### Bundle
+
+CI-to-CI, Milestone 05 run `33271072252` versus Milestone 06 run `33276421355`
+(both with the model packaged):
+
+| | M05 (#134) | M06 (#135) | Delta |
+|---|---|---|---|
+| `bootstrap_js_bytes` | 25,566 | **24,711** | **−855** |
+| `largest_js_chunk_bytes` | 812,392 | 812,392 | **0** |
+| `total_js_bytes` | 7,432,062 | 7,439,643 | +7,581 |
+| `total_web_bytes` | 14,960,738 | 14,969,743 | +9,005 |
+| Artifact bytes | 23,731,156 | 23,737,975 | +6,819 |
+
+The Milestone 05 boot reduction is intact and slightly improved — the feedback
+layers no longer need HUD element handles. Verified by inspecting the built
+bootstrap chunk: **no Babylon, no `UniversalCamera`, no cinematic title card,
+DOM or timeline, no doors, no MissionDirector.** Only the dependency-free
+presentation contract is there. All three budgets green
+(102400 / 921600 / 8500000).
+
+### CI verification
+
+Run `33276421355` (#135), `workflow_dispatch` on
+`53d9e066929dbb4eadaa21b40a69e3ef240bb978`, **completed SUCCESS**, all 15 steps
+green, 2m48s.
+
+Verified from the job log and artifact list, not the step-status API:
+
+- `PRESENTATION_OK 96 checks passed`
+- `MISSION_GRAPH_OK 117 checks passed`
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `PRESENTATION_REGRESSION_GUARDS_OK`
+- `CHARACTER_GLB_OK` with the full CHARACTER REPORT intact (unchanged asset:
+  6,675,064 B, 35,492 tris, 53 joints, 4 clips, 0 morph targets)
+- `BUILD SUCCESSFUL in 1m 46s`
+- debug APK sha256 `eaa21d3301edf78c8e261e698fced1c38fda357cd344079e04493c2f55c1fe1d`
+- Play AAB sha256 `8a916e29b929fc71decf87c645f7852a12c5a79585c85a4d7cab2b5348b218ae`
+- packaged model sha256 `7b5ff9d323b3bea72eddc2faac3ea3ec8f40232acfa2318692ee30efbc202508`
+- artifact `CUMA-WORLD-Android-Play-Build` id `9721663033`, 23,737,975 bytes,
+  digest `sha256:339f754d3d89214c3648858e7c4bb59b933eed37dde585537f1119683c6d8e14`
+- versionCode 1100, versionName 11.0.0-pre.1, targetSdk 36,
+  orientation sensorLandscape, Play upload unsigned
+
+CI proves the build. It says nothing about camera feel, animation quality,
+vibration or readability on a real phone.
+
+### Requires real-device testing from Milestone 06
+
+- whether the 4.0 s intro earns its length or wants trimming toward 3.0 s
+- whether the two establishing shots read as composed or as a camera drifting
+- whether the blend into the third-person pose is invisible or noticeably lands
+- whether the Reduced Motion 1.4 s version still feels like an intro at all
+- whether tap-anywhere skip fires accidentally on a first touch, and whether the
+  ATLA button is comfortably reachable in landscape
+- that HUD and mobile controls genuinely stay hidden until the intro ends
+- the intro on a cold start with slow GLB loading, where the character may still
+  be swapping in mid-presentation
+- backgrounding mid-intro on a real device and resuming
+- whether the sprint FOV change now feels correct at full-joystick walk speed
+- whether the 1.2 m/s sprint floor is right, or trips on a slow run start
+- whether the standing turn's 57° dead zone and ~0.63 s turn feel natural, or
+  the ~6.4° settle offset reads as the body being slightly off-camera
+- the standing turn in a doorway and hard against a wall in cover
+- whether the SEARCH inspect cadence reads as searching or as hesitating
+- haptic distinctness of WATCH / SEARCH / HIGH_ALERT on real hardware
+- whether the audio cue gains sit right against gameplay audio at various
+  volume settings
+- gadget-ready cue frequency during heavy SCAN/JAM/DECOY use
+- feedback line legibility at LOW and under Reduced Motion
