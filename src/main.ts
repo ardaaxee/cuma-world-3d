@@ -114,7 +114,6 @@ const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
 new InteractionPromptGuard(intelStatus, interactionStatus);
 new MissionFeedback(required<HTMLElement>("#objective"), intelStatus, awarenessStatus);
 new MissionDebrief(
-  intelStatus,
   debriefOverlay,
   debriefRank,
   debriefScore,
@@ -128,6 +127,7 @@ new MissionDebrief(
     debriefPauseActive = false;
     syncRuntimePause();
   },
+  document.querySelector<HTMLElement>(".debrief-note"),
 );
 
 function clearHudQuietTimer(): void {

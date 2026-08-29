@@ -1,11 +1,24 @@
-import { resetMissionProgress } from "./mission";
+import { getOptionalObjective, getOpportunity } from "./mission-graph";
+import { resetMissionProgress } from "./mission-save";
+import { type MissionResult, onMissionResult } from "./mission-result";
+
+/**
+ * The mission debrief.
+ *
+ * This used to watch the HUD objective line with a MutationObserver and recover
+ * the result with regexes over Turkish prose. It now consumes the typed
+ * `MissionResult` the director publishes, so the panel can report how the run
+ * was actually solved and nothing breaks when HUD wording changes.
+ *
+ * It deliberately imports only the dependency-free save/graph modules — pulling
+ * `mission.ts` in here would drag `operation-depth -> world-expansion -> doors`
+ * into the boot chunk.
+ */
 
 export class MissionDebrief {
   private shownForResult = "";
-  private readonly observer: MutationObserver;
 
   constructor(
-    private readonly intelElement: HTMLElement,
     private readonly overlay: HTMLElement,
     private readonly rankElement: HTMLElement,
     private readonly scoreElement: HTMLElement,
@@ -13,9 +26,8 @@ export class MissionDebrief {
     closeButton: HTMLButtonElement,
     private readonly onOpen: () => void = () => undefined,
     private readonly onClose: () => void = () => undefined,
+    private readonly noteElement: HTMLElement | null = null,
   ) {
-    this.observer = new MutationObserver(() => this.refresh());
-    this.observer.observe(intelElement, { childList: true, characterData: true, subtree: true });
     closeButton.addEventListener("click", () => {
       this.overlay.classList.add("hidden");
       this.onClose();
@@ -26,33 +38,49 @@ export class MissionDebrief {
     replayButton.addEventListener("click", () => {
       replayButton.disabled = true;
       replayButton.textContent = "YENİDEN BAŞLATILIYOR…";
+      // Clearing the save is what makes the next run pick a fresh runSeed.
       resetMissionProgress();
       window.location.reload();
     });
-    this.refresh();
+
+    onMissionResult((result) => this.present(result));
   }
 
-  private refresh(): void {
-    const text = this.intelElement.textContent ?? "";
-    if (!text.includes("COMPLETE")) return;
-
-    const intelMatch = text.match(/INTEL\s+(\d+)\/(\d+)/i);
-    const resultMatch = text.match(/COMPLETE\s*·\s*(GHOST|SHADOW|OPERATIVE)\s*·\s*SKOR\s+(\d+)/i);
-    if (!resultMatch) return;
-
-    const rank = resultMatch[1] ?? "OPERATIVE";
-    const score = Math.max(0, Math.min(100, Number(resultMatch[2] ?? "0") || 0));
-    const found = intelMatch ? Number(intelMatch[1] ?? "0") || 0 : 0;
-    const total = intelMatch ? Number(intelMatch[2] ?? "0") || 0 : 0;
-    const signature = `${rank}:${score}:${found}:${total}`;
+  private present(result: MissionResult): void {
+    const signature = `${result.rank}:${result.score}:${result.runSeed}:${result.objectivesCompleted.length}`;
     if (this.shownForResult === signature) return;
     this.shownForResult = signature;
 
-    this.rankElement.textContent = rank;
-    this.scoreElement.textContent = String(score).padStart(2, "0");
-    this.intelResultElement.textContent = `${found}/${total} INTEL`;
-    this.overlay.dataset.rank = rank;
+    this.rankElement.textContent = result.rank;
+    this.scoreElement.textContent = String(result.score).padStart(2, "0");
+    this.intelResultElement.textContent = `${result.intelFound}/${result.intelTotal} INTEL`;
+    if (this.noteElement) this.noteElement.textContent = this.summarize(result);
+    this.overlay.dataset.rank = result.rank;
     this.overlay.classList.remove("hidden");
     this.onOpen();
+  }
+
+  /** One compact paragraph: how the run was solved, and what it left behind. */
+  private summarize(result: MissionResult): string {
+    const lines: string[] = [];
+    lines.push(result.route === "side" ? "YAN ROTA" : "ANA ROTA");
+
+    for (const entry of result.resolutions) {
+      if (entry.stage === "MANIFEST") lines.push(`MANİFEST · ${entry.label}`);
+      if (entry.stage === "VERIFY") lines.push(`DOĞRULAMA · ${entry.label}`);
+    }
+
+    lines.push(`OPSİYONEL HEDEF ${result.objectivesCompleted.length}/${result.objectivesTotal}`);
+    if (result.objectivesCompleted.length > 0) {
+      lines.push(result.objectivesCompleted.map((id) => getOptionalObjective(id).label).join(" · "));
+    }
+    lines.push(
+      result.opportunitiesUsed.length > 0
+        ? `FIRSAT · ${result.opportunitiesUsed.map((id) => getOpportunity(id).label).join(" · ")}`
+        : "FIRSAT KULLANILMADI",
+    );
+    lines.push(result.alerts === 0 ? "GÜVENLİK · HİÇ ALARM YOK" : `GÜVENLİK · ${result.alerts} ALARM`);
+    lines.push(result.replayHint);
+    return lines.join("\n");
   }
 }

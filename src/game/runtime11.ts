@@ -38,9 +38,22 @@ import {
   updateFieldFocus,
 } from "./field-focus";
 import { MobileInput, isCrouched, isJumpQueued, isRunHeld } from "./input";
+// Installs the staged ACCESS/MANIFEST terminals. It lives here rather than in
+// mission.ts so the mission graph stays free of the Babylon world graph.
+import "./operation-depth";
 import { MissionDirector } from "./mission";
+import { type MissionResolutionId, type OptionalObjectiveId, getResolution } from "./mission-graph";
+import { type MissionObjectMetadata, buildMissionObjects } from "./mission-objects";
+import {
+  CART_NOISE_LOUDNESS,
+  cartPosition,
+  pushDeliveryCart,
+  registerDeliveryCart,
+  resetDeliveryCart,
+  updateDeliveryCart,
+} from "./delivery-cart";
 import { DOOR_NOISE_LOUDNESS, reportEnvironmentNoise, reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
-import { NpcSystem, type AwarenessSnapshot } from "./npc";
+import { NpcSystem, STAFF_ROUTINE_WINDOW_SECONDS, type AwarenessSnapshot } from "./npc";
 import { SecurityCameraSystem } from "./security";
 import { StealthSignalsHud } from "./stealth-signals";
 import { VisualPolish } from "./visuals";
@@ -87,8 +100,28 @@ const FOCUS_RADIUS = 15;
 type GameMetadata = {
   intelId?: string;
   label?: string;
-  interaction?: "route-main" | "route-side" | "objective" | "extract" | "camera-bypass" | "door";
+  interaction?:
+    | "route-main"
+    | "route-side"
+    | "objective"
+    | "extract"
+    | "camera-bypass"
+    | "door"
+    | MissionObjectMetadata["interaction"];
   doorId?: string;
+};
+
+/** Stage resolutions reachable from a world interactable. */
+const RESOLUTION_INTERACTIONS: Partial<Record<string, MissionResolutionId>> = {
+  objective: "verify_counter",
+  "manifest-ledger": "manifest_ledger",
+  "verify-monitoring": "verify_monitoring",
+};
+
+/** Optional objectives reachable from a world interactable. */
+const OBJECTIVE_INTERACTIONS: Partial<Record<string, OptionalObjectiveId>> = {
+  "objective-secondary-records": "secondary_records",
+  "objective-shift-pattern": "shift_pattern",
 };
 
 export class GameRuntime {
@@ -172,10 +205,13 @@ export class GameRuntime {
     this.buildWorld();
     this.visualPolish = new VisualPolish(this.scene, (mesh) => this.addShadowCaster(mesh));
     this.player = new PlayerCharacter(this.scene);
+    // The seed is persisted with the run, so resuming a save reproduces the
+    // same routine variation and a replay gets a different one.
     this.npcSystem = new NpcSystem(
       this.scene,
       () => this.mission.reportAlert(),
       (mesh) => this.addShadowCaster(mesh),
+      this.mission.getRunSeed(),
     );
     this.securitySystem = new SecurityCameraSystem(this.scene, () => this.mission.reportAlert());
     this.securitySystem.bypassPanel.metadata = {
@@ -188,6 +224,7 @@ export class GameRuntime {
     resetDoors();
     resetFacilitySecurity();
     resetFieldFocus();
+    resetDeliveryCart();
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
@@ -320,6 +357,7 @@ export class GameRuntime {
     this.stealthSignals.update(dt, samplePlayerNoise(), zone, awarenessActive);
 
     updateDoors(dt);
+    updateDeliveryCart(dt);
     updateFieldFocus(dt);
     this.socialCooldown = Math.max(0, this.socialCooldown - dt);
 
@@ -506,24 +544,30 @@ export class GameRuntime {
     }
 
     const state = this.mission.snapshot();
-    let label = "ETKİLEŞ";
-    if (meta.interaction === "objective") label = "TESLİMAT KAYDINI DOĞRULA";
-    if (meta.interaction === "extract") label = "BÖLGEDEN AYRIL";
-    if (meta.interaction === "route-side") label = "YAN YAKLAŞIMI SEÇ";
-    if (meta.interaction === "route-main") label = "ANA YAKLAŞIMI SEÇ";
-    if (meta.interaction === "camera-bypass") {
-      if (this.mission.hasOpportunity("camera_bypass")) label = "CCTV DEVRE DIŞI";
-      else if (!this.mission.hasIntel("market_camera")) label = "ÖNCE CCTV'Yİ RECON İLE TANIMLA";
-      else if (state.state !== "INFILTRATE" && state.state !== "EXTRACT") label = "CCTV FIRSATI HAZIR";
-      else label = "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK";
-    }
-    this.setInteractionLabel(label);
+    this.setInteractionLabel(this.labelFor(meta, state.state));
     if (!interactPressed) return;
 
     if (meta.interaction === "route-main") this.mission.chooseRoute("main");
     if (meta.interaction === "route-side") this.mission.chooseRoute("side");
-    if (meta.interaction === "objective") this.mission.completeObjective();
     if (meta.interaction === "extract") this.mission.extract();
+
+    // One stage resolution per interactable. The director rejects the call
+    // outright when the stage is already resolved, which is what stops an
+    // alternate solution completing a stage its sibling already finished.
+    const resolution = RESOLUTION_INTERACTIONS[meta.interaction ?? ""];
+    if (resolution && this.mission.resolveStage(resolution)) {
+      if (typeof navigator.vibrate === "function") navigator.vibrate([14, 26, 14]);
+      return;
+    }
+
+    const objective = OBJECTIVE_INTERACTIONS[meta.interaction ?? ""];
+    if (objective && this.mission.completeOptionalObjective(objective)) {
+      showDoorStatus(objective === "shift_pattern" ? "VARDİYA ÇİZELGESİ ALINDI" : "İKİNCİL ARŞİV ALINDI", 2.2);
+      if (typeof navigator.vibrate === "function") navigator.vibrate([12, 22, 12]);
+      return;
+    }
+
+    if (meta.interaction === "delivery-cart") this.pushCart();
     if (meta.interaction === "camera-bypass") {
       const active = state.state === "INFILTRATE" || state.state === "EXTRACT";
       if (
@@ -533,6 +577,61 @@ export class GameRuntime {
         this.securitySystem.bypass();
       }
     }
+  }
+
+  /** Prompt text for a targeted interactable, including why it is unavailable. */
+  private labelFor(meta: GameMetadata, missionState: string): string {
+    if (meta.interaction === "extract") return "BÖLGEDEN AYRIL";
+    if (meta.interaction === "route-side") return "YAN YAKLAŞIMI SEÇ";
+    if (meta.interaction === "route-main") return "ANA YAKLAŞIMI SEÇ";
+
+    const resolution = RESOLUTION_INTERACTIONS[meta.interaction ?? ""];
+    if (resolution) return this.resolutionLabel(resolution, meta);
+
+    const objective = OBJECTIVE_INTERACTIONS[meta.interaction ?? ""];
+    if (objective) {
+      return this.mission.hasObjective(objective) ? "KAYIT ALINDI" : meta.label ?? "ETKİLEŞ";
+    }
+
+    if (meta.interaction === "delivery-cart") {
+      if (!this.mission.hasIntel("market_worker_route")) return "ÇALIŞAN ROTASI BİLİNMİYOR";
+      return "SEVKİYAT ARABASINI İT";
+    }
+
+    if (meta.interaction === "camera-bypass") {
+      if (this.mission.hasOpportunity("camera_bypass")) return "CCTV DEVRE DIŞI";
+      if (!this.mission.hasIntel("market_camera")) return "ÖNCE CCTV'Yİ RECON İLE TANIMLA";
+      if (missionState !== "INFILTRATE" && missionState !== "EXTRACT") return "CCTV FIRSATI HAZIR";
+      return "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK";
+    }
+    return meta.label ?? "ETKİLEŞ";
+  }
+
+  /**
+   * Explains an alternate solution rather than silently doing nothing: already
+   * solved, missing intel, or out of order all read differently.
+   */
+  private resolutionLabel(resolution: MissionResolutionId, meta: GameMetadata): string {
+    const stage = getResolution(resolution).stage;
+    if (this.mission.isStageResolved(stage)) return "BU AŞAMA TAMAMLANDI";
+    if (this.mission.canResolve(resolution)) {
+      return meta.interaction === "objective" ? "TESLİMAT KAYDINI DOĞRULA" : meta.label ?? "ETKİLEŞ";
+    }
+    const required = getResolution(resolution).requiresIntel;
+    if (required && !this.mission.hasIntel(required)) {
+      return required === "market_camera" ? "ÖNCE CCTV'Yİ RECON İLE TANIMLA" : "ÖNCE ÇALIŞAN ROTASINI ÖĞREN";
+    }
+    return "ÖNCEKİ AŞAMA TAMAMLANMADI";
+  }
+
+  /** Pushes the cart to its next authored stop and makes the move audible. */
+  private pushCart(): void {
+    if (!this.mission.canUseOpportunity("delivery_cart") && !this.mission.hasOpportunity("delivery_cart")) return;
+    const at = pushDeliveryCart();
+    if (!at) return;
+    this.mission.useOpportunity("delivery_cart");
+    reportEnvironmentNoise(at.x, at.y, at.z, CART_NOISE_LOUDNESS);
+    if (typeof navigator.vibrate === "function") navigator.vibrate(10);
   }
 
   /**
@@ -551,6 +650,9 @@ export class GameRuntime {
       this.setInteractionLabel("");
       return;
     }
+    // The routine window is earned knowledge, so it outranks the bluff in the
+    // same contextual slot while it is still unused.
+    if (this.updateRoutineWindowPrompt(interactPressed)) return;
     if (this.socialCooldown > 0 || !hasStaffCredential()) {
       this.setInteractionLabel("");
       return;
@@ -579,6 +681,22 @@ export class GameRuntime {
     this.socialCooldown = SOCIAL_COOLDOWN;
     this.setInteractionLabel("");
     if (typeof navigator.vibrate === "function") navigator.vibrate([10, 30, 10]);
+  }
+
+  /**
+   * STAFF ROUTINE WINDOW. Unlocked by the shift-pattern objective, used once,
+   * and deliberately narrow: it sends one worker off on an authored task and
+   * changes nothing about facility heat or what security knows.
+   */
+  private updateRoutineWindowPrompt(interactPressed: boolean): boolean {
+    if (!this.mission.canUseOpportunity("staff_routine_window")) return false;
+    this.setInteractionLabel("PERSONEL RUTİN ARALIĞINI KULLAN");
+    if (!interactPressed) return true;
+    if (!this.npcSystem.openStaffRoutineWindow(STAFF_ROUTINE_WINDOW_SECONDS)) return true;
+    this.mission.useOpportunity("staff_routine_window");
+    this.setInteractionLabel("");
+    if (typeof navigator.vibrate === "function") navigator.vibrate([10, 24, 10]);
+    return true;
   }
 
   /**
@@ -620,6 +738,8 @@ export class GameRuntime {
       this.pushFocusMesh(this.securitySystem.bypassPanel, "intel", Infinity, player);
     }
 
+    this.pushEarnedSolutions();
+
     // Abstract last-known incident context, never the player's live position.
     if (readSearchAnchor(this.anchorScratch)) {
       targets.push({ x: this.anchorScratch.x, y: this.anchorScratch.y, z: this.anchorScratch.z, kind: "incident" });
@@ -627,6 +747,33 @@ export class GameRuntime {
 
     if (!activateFieldFocus(this.scene, targets)) return;
     if (typeof navigator.vibrate === "function") navigator.vibrate(8);
+  }
+
+  /**
+   * Marks alternate solutions and opportunities the player has actually earned
+   * and not yet spent. Nothing unknown is ever revealed: each entry is gated on
+   * the same director check that would let the player use it.
+   */
+  private pushEarnedSolutions(): void {
+    const player = this.player.position;
+    if (this.mission.canResolve("manifest_ledger")) {
+      this.pushFocusTarget("manifest-ledger", "objective", Infinity);
+    }
+    if (this.mission.canResolve("verify_monitoring")) {
+      this.pushFocusTarget("verify-monitoring", "objective", Infinity);
+    }
+    if (this.mission.canCompleteObjective("secondary_records")) {
+      this.pushFocusTarget("objective-secondary-records", "intel", FOCUS_RADIUS);
+    }
+    if (this.mission.canCompleteObjective("shift_pattern")) {
+      this.pushFocusTarget("objective-shift-pattern", "intel", FOCUS_RADIUS);
+    }
+    if (this.mission.canUseOpportunity("delivery_cart")) {
+      const at = cartPosition();
+      if (at && Vector3.Distance(new Vector3(at.x, at.y, at.z), player) <= FOCUS_RADIUS) {
+        this.focusTargets.push({ x: at.x, y: at.y, z: at.z, kind: "access" });
+      }
+    }
   }
 
   private pushFocusTarget(meshName: string, kind: FieldFocusTarget["kind"], radius: number): void {
@@ -683,7 +830,8 @@ export class GameRuntime {
     const state = this.mission.snapshot();
     this.objectiveEl.textContent = state.objective;
     const result = state.state === "COMPLETE" ? ` · ${state.rank} · SKOR ${state.score}` : "";
-    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal} · ${state.state}${result}`;
+    const optional = state.objectivesCompleted > 0 ? ` · EK ${state.objectivesCompleted}/${state.objectivesTotal}` : "";
+    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal}${optional} · ${state.state}${result}`;
   }
 
   private buildWorld(): void {
@@ -816,6 +964,13 @@ export class GameRuntime {
     const extraction = this.box("extraction", new Vector3(0, 1, -12), new Vector3(5, 2, 0.12), accent, false);
     extraction.visibility = 0.015;
     extraction.metadata = { label: "EXTRACTION", interaction: "extract" } satisfies GameMetadata;
+
+    // Alternate stage solutions, optional objectives and the delivery cart.
+    // They carry ordinary interaction metadata, so the resolver above owns them
+    // exactly like doors and terminals.
+    const missionObjects = buildMissionObjects(this.scene);
+    registerDeliveryCart(missionObjects.cart);
+    this.addShadowCaster(missionObjects.cart);
   }
 
   private buildSky(): void {

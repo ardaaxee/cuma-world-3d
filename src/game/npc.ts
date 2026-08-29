@@ -26,6 +26,15 @@ import {
   type FacilityState,
 } from "./facility-security";
 import {
+  ROUTINE_SETS,
+  type RoutineSet,
+  type RoutineVariant,
+  type RoutineWaypoint,
+  selectDwellScale,
+  selectPhaseOffset,
+  selectVariant,
+} from "./npc-routines";
+import {
   ZONE_AWARENESS_GAIN,
   ZONE_INVESTIGATE_FLOOR,
   ZONE_INVESTIGATE_THRESHOLD,
@@ -99,9 +108,12 @@ export interface AwarenessSnapshot {
 type AgentConfig = {
   name: string;
   security: boolean;
-  route: Vector3[];
+  routines: RoutineSet;
   color: Color3;
 };
+
+/** How long the STAFF ROUTINE WINDOW keeps a worker on its alternate routine. */
+export const STAFF_ROUTINE_WINDOW_SECONDS = 20;
 
 type PendingBroadcast = {
   sourceIndex: number;
@@ -120,10 +132,36 @@ const searchRay = new Ray(Vector3.Zero(), new Vector3(0, 0, 1), 1);
 const occludesSound = (mesh: AbstractMesh): boolean =>
   mesh instanceof Mesh && mesh.checkCollisions && mesh.isEnabled();
 
+/** A routine with its waypoint positions realised as Vector3, built once. */
+interface LiveRoutine {
+  readonly id: string;
+  readonly waypoints: readonly { readonly position: Vector3; readonly dwell?: number; readonly sweep?: number }[];
+}
+
+function toLiveRoutine(variant: RoutineVariant): LiveRoutine {
+  return {
+    id: variant.id,
+    waypoints: variant.waypoints.map((waypoint: RoutineWaypoint) => ({
+      position: new Vector3(waypoint.x, 0, waypoint.z),
+      ...(waypoint.dwell === undefined ? {} : { dwell: waypoint.dwell }),
+      ...(waypoint.sweep === undefined ? {} : { sweep: waypoint.sweep }),
+    })),
+  };
+}
+
 class NpcAgent {
   readonly root: TransformNode;
-  private readonly route: Vector3[];
+  /** The authored routine this run picked; chosen once, never per frame. */
+  private routine: LiveRoutine;
+  private readonly baseRoutine: LiveRoutine;
+  private readonly alternateRoutine: LiveRoutine | null;
+  private readonly dwellScale: number;
+  private readonly phaseOffset: number;
   private routeIndex = 1;
+  private dwellRemaining = 0;
+  private sweepPhase = 0;
+  private alternateTimer = 0;
+  private routineInterrupted = false;
   private awareness = 0;
   private state: AwarenessState = "NORMAL";
   private alertedCycle = false;
@@ -146,10 +184,16 @@ class NpcAgent {
     private readonly config: AgentConfig,
     private readonly onAlert: (name: string) => void,
     addShadowCaster: (mesh: Mesh) => void,
+    runSeed: number,
   ) {
-    this.route = config.route;
+    this.baseRoutine = toLiveRoutine(selectVariant(config.routines, runSeed, config.name));
+    this.alternateRoutine = config.routines.alternate ? toLiveRoutine(config.routines.alternate) : null;
+    this.routine = this.baseRoutine;
+    this.dwellScale = selectDwellScale(runSeed, config.name);
+    this.phaseOffset = selectPhaseOffset(runSeed, config.name);
+    this.sweepPhase = this.phaseOffset;
     this.root = new TransformNode(`npc-${config.name}`, scene);
-    this.root.position.copyFrom(this.route[0] ?? Vector3.Zero());
+    this.root.position.copyFrom(this.waypointAt(0)?.position ?? Vector3.Zero());
 
     const uniform = this.material(`npc-${config.name}-uniform`, config.color, 0.76, 0.03);
     const skin = this.material(`npc-${config.name}-skin`, new Color3(0.5, 0.36, 0.27), 0.7, 0.0);
@@ -223,6 +267,13 @@ class NpcAgent {
       this.hearingPressure = 0;
       this.hearingCooldown = 0;
       this.contactMemory = 0;
+      // Drop back to the authored base routine so a re-enabled agent never
+      // resumes mid-window with a stale alternate timer.
+      this.routine = this.baseRoutine;
+      this.alternateTimer = 0;
+      this.dwellRemaining = 0;
+      this.routineInterrupted = false;
+      this.routeIndex = this.nearestWaypointIndex();
     }
   }
 
@@ -320,8 +371,10 @@ class NpcAgent {
     // Facility posture makes security units move with more urgency; it never
     // tells them where the player is.
     const urgency = this.posture === "HIGH_ALERT" ? 1.35 : this.posture === "SEARCH" ? 1.18 : 1;
+    this.updateAlternateRoutine(dt);
 
     if (this.lastSeenPosition && this.investigateTimer > 0 && this.state !== "NORMAL") {
+      this.routineInterrupted = true;
       const investigateSpeed = (this.state === "ALERT" ? 1.18 : this.state === "SUSPICIOUS" ? 0.88 : 0.66) * urgency;
       if (this.moveToward(this.lastSeenPosition, investigateSpeed, dt) < 0.34) {
         this.investigateTimer = 0;
@@ -332,29 +385,114 @@ class NpcAgent {
     }
 
     if (this.searchTimer > 0 && this.state !== "NORMAL") {
+      this.routineInterrupted = true;
       const searchSpeed = (this.config.security ? 0.86 : 0.62) * urgency;
       this.root.rotation.y += dt * searchSpeed * this.searchDirection;
       return;
     }
 
     if (this.state === "ALERT") {
+      this.routineInterrupted = true;
       this.root.rotation.y += dt * 0.72 * urgency;
       return;
     }
 
-    if (this.route.length < 2) return;
-    const destination = this.route[this.routeIndex];
-    if (!destination) return;
-    const patrolSpeed = this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05;
-    // WATCH: patrol a little slower and keep looking around, without knowing
-    // anything new about the player.
+    // Coming back from a search: resume the authored routine at the nearest
+    // waypoint rather than walking back to wherever the loop happened to be.
+    if (this.routineInterrupted) {
+      this.routineInterrupted = false;
+      this.routeIndex = this.nearestWaypointIndex();
+      this.dwellRemaining = 0;
+    }
+
+    this.updateRoutine(dt);
+  }
+
+  /** Walks the authored waypoint list, holding and sweeping where authored. */
+  private updateRoutine(dt: number): void {
+    const waypoints = this.routine.waypoints;
+    if (waypoints.length < 2) return;
+
     const watching = this.posture === "WATCH" && this.state === "NORMAL";
-    const distance = this.moveToward(destination, watching ? patrolSpeed * 0.82 : patrolSpeed, dt);
+    const target = this.waypointAt(this.routeIndex);
+    if (!target) return;
+
+    if (this.dwellRemaining > 0) {
+      this.dwellRemaining -= dt;
+      const sweep = target.sweep ?? 0;
+      if (sweep > 0) {
+        // A slow authored look-around while held at the point. The per-agent
+        // phase offset is what stops units sweeping in unison.
+        this.sweepPhase += dt * 1.1;
+        this.root.rotation.y += Math.sin(this.sweepPhase) * dt * sweep;
+      }
+      if (watching) {
+        this.scanPhase += dt * 0.9;
+        this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55;
+      }
+      if (this.dwellRemaining <= 0) this.advanceWaypoint();
+      return;
+    }
+
+    const patrolSpeed = this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05;
+    const distance = this.moveToward(target.position, watching ? patrolSpeed * 0.82 : patrolSpeed, dt);
     if (watching) {
       this.scanPhase += dt * 0.9;
       this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55;
     }
-    if (distance < 0.18) this.routeIndex = (this.routeIndex + 1) % this.route.length;
+    if (distance >= 0.18) return;
+
+    const dwell = (target.dwell ?? 0) * this.dwellScale;
+    if (dwell > 0) this.dwellRemaining = dwell;
+    else this.advanceWaypoint();
+  }
+
+  private advanceWaypoint(): void {
+    const count = this.routine.waypoints.length;
+    if (count === 0) return;
+    this.routeIndex = (this.routeIndex + 1) % count;
+    this.dwellRemaining = 0;
+  }
+
+  private waypointAt(index: number): LiveRoutine["waypoints"][number] | undefined {
+    return this.routine.waypoints[index];
+  }
+
+  private nearestWaypointIndex(): number {
+    let best = 0;
+    let bestDistance = Infinity;
+    this.routine.waypoints.forEach((waypoint, index) => {
+      const distance = Vector3.DistanceSquared(waypoint.position, this.root.position);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+    return best;
+  }
+
+  /** Runs down the STAFF ROUTINE WINDOW and restores the base routine after. */
+  private updateAlternateRoutine(dt: number): void {
+    if (this.alternateTimer <= 0) return;
+    this.alternateTimer -= dt;
+    if (this.alternateTimer > 0) return;
+    this.routine = this.baseRoutine;
+    this.routeIndex = this.nearestWaypointIndex();
+    this.dwellRemaining = 0;
+  }
+
+  /**
+   * Temporarily switches a worker onto its authored alternate task. Security
+   * units never accept this, and it changes nothing about what anyone knows.
+   */
+  startAlternateRoutine(seconds: number): boolean {
+    const alternate = this.alternateRoutine;
+    if (!this.enabled || this.config.security || !alternate) return false;
+    this.routine = alternate;
+    this.routeIndex = 0;
+    this.dwellRemaining = 0;
+    this.alternateTimer = seconds;
+    return true;
   }
 
   private moveToward(destination: Vector3, speed: number, dt: number): number {
@@ -519,26 +657,32 @@ export class NpcSystem {
   private searchRefreshTimer = 0;
   private searchedState: FacilityState = "CALM";
 
-  constructor(private readonly scene: Scene, onAlert: (name: string) => void, addShadowCaster: (mesh: Mesh) => void) {
+  constructor(
+    private readonly scene: Scene,
+    onAlert: (name: string) => void,
+    addShadowCaster: (mesh: Mesh) => void,
+    runSeed: number,
+  ) {
+    const named = (name: keyof typeof ROUTINE_SETS): RoutineSet => ROUTINE_SETS[name] ?? { variants: [] };
     this.agents = [
       new NpcAgent(scene, {
         name: "GÜVENLİK 01",
         security: true,
-        route: [new Vector3(-4.8, 0, 4.2), new Vector3(-4.8, 0, 11.8), new Vector3(-1.2, 0, 11.8), new Vector3(-1.2, 0, 4.2)],
+        routines: named("GÜVENLİK 01"),
         color: new Color3(0.07, 0.1, 0.13),
-      }, onAlert, addShadowCaster),
+      }, onAlert, addShadowCaster, runSeed),
       new NpcAgent(scene, {
         name: "GÜVENLİK 02",
         security: true,
-        route: [new Vector3(4.8, 0, 11.8), new Vector3(4.8, 0, 4.5), new Vector3(2.5, 0, 4.5), new Vector3(2.5, 0, 11.8)],
+        routines: named("GÜVENLİK 02"),
         color: new Color3(0.08, 0.105, 0.12),
-      }, onAlert, addShadowCaster),
+      }, onAlert, addShadowCaster, runSeed),
       new NpcAgent(scene, {
         name: "MARKET ÇALIŞANI",
         security: false,
-        route: [new Vector3(-2.8, 0, 8.2), new Vector3(1.4, 0, 8.2), new Vector3(1.4, 0, 11.0), new Vector3(-2.8, 0, 11.0)],
+        routines: named("MARKET ÇALIŞANI"),
         color: new Color3(0.31, 0.19, 0.09),
-      }, onAlert, addShadowCaster),
+      }, onAlert, addShadowCaster, runSeed),
     ];
 
     this.networkStatus = document.createElement("div");
@@ -703,6 +847,23 @@ export class NpcSystem {
       best = { index, name: agent.name() };
     }
     return best;
+  }
+
+  /**
+   * STAFF ROUTINE WINDOW. Sends a worker off on an authored alternate task for
+   * a bounded window, opening a gap in the staff corridor.
+   *
+   * It deliberately does nothing to security units, to facility heat or to what
+   * anybody knows — it only changes where one worker happens to be standing.
+   */
+  openStaffRoutineWindow(seconds: number): boolean {
+    for (const agent of this.agents) {
+      if (agent.isSecurity()) continue;
+      if (!agent.startAlternateRoutine(seconds)) continue;
+      this.showNetworkStatus("PERSONEL RUTİNİ · KORİDOR BOŞALIYOR", 2.2);
+      return true;
+    }
+    return false;
   }
 
   /** Applies the bounded de-escalation to exactly one guard. */

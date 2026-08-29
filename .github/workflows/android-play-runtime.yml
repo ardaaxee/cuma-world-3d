@@ -118,8 +118,22 @@ jobs:
           ! grep -Eq '^import[[:space:]].*runtime11' src/main.ts
           grep -q 'hud.css' src/main.ts
           grep -q 'useOpportunity' src/game/mission.ts
-          grep -q 'camera_bypass' src/game/mission.ts
+          grep -q 'camera_bypass' src/game/mission-graph.ts
           grep -q 'canInteract' src/game/mission.ts
+          grep -q 'resolveStage' src/game/mission.ts
+          grep -q 'manifest_ledger' src/game/mission-graph.ts
+          grep -q 'verify_monitoring' src/game/mission-graph.ts
+          grep -q 'secondary_records' src/game/mission-graph.ts
+          grep -q 'shift_pattern' src/game/mission-graph.ts
+          grep -q 'staff_routine_window' src/game/mission-graph.ts
+          grep -q 'delivery_cart' src/game/mission-graph.ts
+          grep -q 'runSeed' src/game/mission-save.ts
+          grep -q 'MISSION_RESULT_EVENT' src/game/mission-result.ts
+          grep -q 'selectVariant' src/game/npc-routines.ts
+          # The debrief must consume the typed result, never regex over HUD prose.
+          ! grep -q 'MutationObserver' src/game/debrief.ts
+          ! grep -Eq 'text\.match\(|intelElement' src/game/debrief.ts
+          ! grep -q 'from "./mission"' src/game/debrief.ts
           grep -q 'InteractionPromptGuard' src/main.ts
           grep -q 'investigateTimer' src/game/npc.ts
           grep -q 'senseInterval' src/game/npc.ts
@@ -142,6 +156,7 @@ jobs:
           fi
           python3 ci/measure_android_web_bundle.py
           node ci/test_character_runtime.mjs
+          node ci/test_mission_graph.mjs
 
       - name: Create native Android project
         shell: bash
