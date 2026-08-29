@@ -209,6 +209,130 @@ what keeps the delta at ~7 kB instead of ~25 kB. Breaking the
 `debrief -> mission` edge would move the whole world builder out of startup and
 is the obvious next performance win, but it was out of scope here.
 
+## Milestone 04 — Facility Security + Social Stealth + Field Focus (verified)
+
+Gameplay commit: `6925ae171f0cff3aae1373a9c1149465db7a4a62`
+Commit message: `feat: coordinate facility security and social stealth`
+Workflow run: `33246717365` (#132) — SUCCESS end-to-end in 2m55s
+(09:58:31 -> 10:01:26), confirmed from run status, artifact and job log.
+
+Artifact `CUMA-WORLD-Android-Play-Build`, 23704495 bytes,
+sha256 `9a1b35fb96a7e18fbe1363ed1f52eb67c99c37750ca66a69083a2aed56e97f77`.
+
+`npm run build` passed locally with a clean `tsc --noEmit`; all three bundle
+budgets green (boot 42949/102400, largest chunk 809378/921600, total JS
+7028046/8500000).
+
+Files added:
+- `src/game/facility-security.ts` — the one facility controller
+- `src/game/field-focus.ts` — pooled contextual markers
+
+Files changed:
+- `src/game/npc.ts` — facility posture, coordinated search, social-check API
+- `src/game/runtime11.ts` — facility update, COVER STORY prompt, FIELD FOCUS
+- `src/game/security.ts` — CCTV feeds and reacts to facility state
+- `src/game/doors.ts` + `src/game/world-expansion.ts` — `closeSecurityDoors()`
+- `src/game/zones.ts` — bounded `relaxZoneSuspicion()`
+- `src/game/stealth-signals.ts` + `src/stealth-signals.css` — facility chip
+
+### Facility security API
+
+`FacilityState` = CALM | WATCH | SEARCH | HIGH_ALERT.
+`reportIncident(kind, x?, y?, z?)`, `updateFacilitySecurity(dt, active)`,
+`getFacilitySnapshot()`, `getFacilityState()`, `readSearchAnchor(out)`,
+`getAnchorVersion()`, `relaxFacilityHeat(amount)`, `facilityStateLabel(state)`,
+`resetFacilitySecurity()`.
+
+Snapshot carries state, heat, hasAnchor, secondsSinceContact, escalating.
+
+### Heat model
+
+Each incident kind has a gain and a **ceiling**; the ceiling is the structural
+safety rule, not a tuning accident:
+
+| kind | gain | ceiling | anchor | confirms |
+|---|---|---|---|---|
+| noise (guard turns CURIOUS) | 0.10 | 0.40 | yes | no |
+| zone (sustained pressure) | 0.05 | 0.30 | no | no |
+| decoy | 0.50 | 0.60 | yes | no |
+| suspicion (guard SUSPICIOUS) | 0.28 | 0.66 | yes | no |
+| guard-alert | 0.80 | 1.00 | yes | yes |
+| camera-alert | 0.75 | 1.00 | yes | yes |
+
+Thresholds: WATCH 0.18, SEARCH 0.45, HIGH_ALERT 0.78. Falling: 0.10 / 0.34 /
+0.62. Decay 0.05/s after a 2 s grace so repeated events accumulate. HIGH_ALERT
+additionally requires a sighting within 14 s. Escalation is immediate;
+de-escalation needs 2.5 s dwell.
+
+Simulated before wiring: 3 door-noise events peak at WATCH; 2 suspicious guards
+reach SEARCH; a decoy reaches SEARCH; a confirmed guard or camera alert reaches
+HIGH_ALERT and recovers to CALM in roughly 30 s.
+
+### Coordinated search
+
+Guards never receive the player's live position — only the anchor. In SEARCH,
+security units are fanned onto distinct ring points (golden-angle spacing,
+2.4–5.2 m) and each candidate is pulled back if a wall sits between it and the
+anchor. Points regenerate only on anchor/state change or every 6.5 s.
+
+WATCH slows security patrol to 0.82x and adds a look-around sweep; workers are
+unaffected. SEARCH/HIGH_ALERT add urgency multipliers (1.18x / 1.35x) and small
+awareness-rate scaling (1.12/1.2/1.3), never knowledge.
+
+### COVER STORY
+
+Uses the existing interact control; it claims the prompt only when no physical
+interactable is targeted, so terminals > world meshes > social stays
+deterministic. Requires all of: INFILTRATE/EXTRACT, STAFF zone, staff
+credential, facility below HIGH_ALERT, not crouched / not in cover / not
+sprinting, noise <= 0.5, off cooldown, and a guard within 6.5 m with eye
+contact who is CURIOUS or SUSPICIOUS with awareness <= 0.72.
+
+Success: that guard drops 0.34 to a floor of 0.08 (never zero), STAFF zone
+suspicion -0.28, facility heat -0.12 but never below the SEARCH exit, 22 s
+cooldown. It cannot work in RESTRICTED, against ALERT, or during HIGH_ALERT.
+
+### FIELD FOCUS
+
+Recon is untouched before infiltration. During INFILTRATE/EXTRACT the same
+OBSERVE control gives a 3 s window on a 9 s cooldown. It marks only the current
+operation target, nearby doors, discovered intel, a discovered CCTV opportunity,
+extraction, and the abstract last-known incident point. NPCs are never
+candidates. Markers are pooled (6, LOW 3) and the target scan runs once per
+activation. SCAN remains signal discovery; FIELD FOCUS is readability of what is
+already known.
+
+### Performance
+
+One facility update path, no per-guard timers, no per-frame search generation,
+no full-scene per-frame scan, DOM writes only on displayed-state change. LOW
+reduces markers; Reduced Motion drops the pulse, not the mechanic. Pause clears
+focus/social timers and freezes doors.
+
+Boot chunk 42597 -> 42949 bytes (budget 102400): the new modules are reachable
+only from the lazy runtime, so the documented `debrief -> mission ->
+operation-depth -> world-expansion -> doors` startup chain was not widened.
+
+### Save compatibility
+
+No save schema change. Facility state, focus and social cooldowns are
+runtime-only by design. Mission progression, route, intel, alerts, opportunities
+and score are untouched.
+
+### Requires real-device testing from Milestone 04
+
+- whether WATCH look-around reads as alert patrolling or as jitter
+- whether two guards fanning out around the anchor is visibly different from
+  the old stacking behaviour
+- whether facility recovery (~30 s) feels earned or too generous
+- whether COVER STORY is discoverable — it appears with no world interactable
+  targeted, which players may not expect
+- FIELD FOCUS marker legibility at LOW and under Reduced Motion
+- whether auto-closed doors ever feel like a softlock in practice
+- CCTV pressure during SEARCH/HIGH_ALERT versus JAM usefulness
+- pause/background/resume during an active focus window or search
+- frame cost of the search LOS rays on LOW/MEDIUM
+
 ### Requires real-device testing from Milestone 03
 
 - whether 1.8 m openings and the corridor stub feel navigable with the joystick
