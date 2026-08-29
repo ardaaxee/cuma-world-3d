@@ -71,10 +71,11 @@ The style target is an original CUMA WORLD spy-thriller in the broad quality cla
 
 Do not create parallel replacements unless a refactor is explicitly justified and preserves behavior.
 
-## Milestone 01 — Hearing + Social Stealth Foundation (implemented)
+## Milestone 01 — Hearing + Social Stealth Foundation (verified)
 
-HEAD: `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
+Gameplay implementation HEAD: `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
 Commit: `feat: add hearing and zone suspicion foundation`
+Handoff HEAD after recording: `f61bfec31cd09ca7f78d0f13c12de928fded8283`
 
 Files added:
 - `src/game/noise.ts` — authoritative player noise model
@@ -83,63 +84,67 @@ Files added:
 - `src/stealth-signals.css`
 
 Files changed:
-- `src/game/npc.ts` — hearing folded into the existing awareness/investigation system
+- `src/game/npc.ts` — hearing folded into existing awareness/investigation
 - `src/game/character.ts` — real landing feeds a noise burst
-- `src/game/runtime11.ts` — feeds the noise/zone models and owns the new HUD
+- `src/game/runtime11.ts` — feeds noise/zone models and owns the new HUD
 
-Behaviour added:
-- One noise model derived from the existing locomotion/cover state. Named,
-  tunable levels for idle / crouched / walking / running plus landing bursts.
-  Fixed impulse pool, no per-frame allocation.
-- NPC hearing works outside the vision cone. Heard noise raises awareness only
-  to a loudness-derived ceiling hard-capped below ALERT, so footsteps can never
-  raise the facility on their own: walking peaks at CURIOUS, only a close
-  sprint reaches SUSPICIOUS.
-- Heard noise creates an investigation point at the sound origin and reuses the
-  existing investigation / last-known-position / search behaviour. A cooldown
-  keeps guards searching where the sound was instead of tracking the player.
-- One occlusion ray muffles sound through geometry without silencing it; LOW
-  tier substitutes a flat attenuation and keeps hearing working.
-- DECOY routes through the same model with a strictly higher awareness floor
-  (0.46) and reach (13.5) than any incidental movement noise.
-- Zone volumes over the existing market and service-route geometry. Presence
-  alone builds suspicion in STAFF/RESTRICTED, amplifies NPC awareness gain,
-  and eventually draws one security check. Returning to PUBLIC recovers;
-  crouch, cover and earned staff access reduce the pressure.
-- Current zone published on `document.body.dataset.zone`.
+Behaviour:
+- crouched movement is materially quieter than walking/running
+- NPC hearing works outside visual FOV and investigates sound origin
+- footsteps cannot directly force ALERT
+- DECOY remains stronger/more deliberate than ordinary movement noise
+- PUBLIC / STAFF / RESTRICTED zone pressure is reusable and recovers after leaving inappropriate areas
+- current zone is published through `document.body.dataset.zone`
 
-Reusable API for later milestones: `classifyZone`, `getPlayerZone`,
-`getZoneSuspicion`, `setZoneAccessGranted` (credential/intel hook),
-`resetZonePresence`.
+Reusable API:
+`classifyZone`, `getPlayerZone`, `getZoneSuspicion`, `setZoneAccessGranted`, `resetZonePresence`.
 
-Preserved untouched: controls, cover, gadgets, CCTV, route choice, the
-ACCESS -> MANIFEST -> VERIFY -> EXTRACT chain, security broadcasts, settings and
-debrief pause behaviour, graphics tiers, Android lifecycle handling.
+Validation:
+- `npm run build` passed
+- workflow dispatch run `33244096862` completed SUCCESS for gameplay commit `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
+- TypeScript/Vite, native Android generation, Android 16 SDK, debug APK, Play AAB, SHA/build manifest and artifact upload all succeeded
 
-Validation: `npm run build` passes. Boot chunk is byte-identical to the previous
-build (35087 bytes); the added code lands entirely in the lazy runtime chunk.
+No real-device behavior is claimed from CI.
 
-Android workflow does not auto-run on this branch — `android-play-runtime.yml`
-only triggers on push to `chatgpt/android-play-runtime`. Run it here with
-`workflow_dispatch` against `claude/full-game-development`.
+## Requires real-device testing from Milestone 01
 
-Not verified: any real-device behaviour. See the device notes below.
+- noise/zone HUD readability in landscape
+- hearing distances with touch movement
+- STAFF/RESTRICTED suspicion tuning near objectives
+- hearing occlusion-ray cost on MEDIUM/HIGH
+- background/resume noise reset
 
-## Requires real-device testing
+## Active Milestone 02 — Directional Cover + Camera Stealth Polish
 
-- Whether the noise/zone readout is legible and uncluttered in landscape.
-- Whether hearing distances feel fair with touch controls rather than on paper.
-- Whether the zone suspicion rate is too aggressive around the back-office
-  objective, which sits inside the RESTRICTED volume by design.
-- Performance of the added occlusion ray on MEDIUM/HIGH with three agents.
-- Pause/background/resume with noise state reset.
+The only active implementation task is now `docs/CLAUDE_NEXT_TASK.md`.
 
-## Planned next milestone after hearing/zone foundation
+Milestone 02 must refine the existing cover system rather than replace it:
+- retain dominant cover surface normal/tangent
+- make cover protection directional and based on real exposure/occlusion
+- remove broad global stealth benefit when the player is actually exposed
+- constrain cover movement naturally along the surface without a sticky rail
+- RUN/JUMP must exit cover cleanly
+- adapt the third-person shoulder camera to cover/open side while preserving camera collision
+- keep compact protected/exposed feedback
+- preserve Milestone 01 hearing and zone suspicion
 
-If the active milestone is green, ChatGPT will prepare the next Claude prompt for:
-- physical back-office/security-room expansion
-- reusable door/access state system
-- social-stealth access opportunities
-- intel-driven alternate routes
+Do not add another permanent action button.
+Do not create a second movement, camera or visibility system.
 
-Do not start these early.
+Validation requirements:
+- `npm run build`
+- focused commit
+- manually dispatch Android workflow against `claude/full-game-development` if necessary
+- verify exact run for the gameplay commit
+- stop after Milestone 02 and report before starting anything else
+
+## Planned Milestone 03 after Milestone 02 is verified
+
+ChatGPT will prepare the next prompt for world/access depth, expected to include:
+- physical back-office/security/utility expansion
+- reusable interactive door/access-state system
+- credential/intel-driven access opportunities
+- social-stealth use of PUBLIC/STAFF/RESTRICTED zones
+- at least one additional physical route/loop with gameplay purpose
+
+Do not start Milestone 03 early.
