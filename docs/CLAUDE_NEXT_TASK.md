@@ -1,4 +1,4 @@
-# CLAUDE NEXT TASK — Milestone 04: Facility Security + Social Stealth + Field Focus
+# CLAUDE NEXT TASK — Milestone 05: Mission Graph + Opportunities + NPC Routines + Replay Depth
 
 Read `CLAUDE.md`, `CLAUDE_CODE_HANDOFF.md`, `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`, and `docs/CLAUDE_007_STYLE_GUIDE.md` before editing.
 
@@ -6,317 +6,365 @@ Work ONLY on branch `claude/full-game-development`.
 Do not modify `main`.
 Do not create a PR.
 
-Current collaboration HEAD before this milestone: `faef9f7c34595ad23425e584aee51ef9d352853a`.
-Milestone 03 gameplay implementation is `b965fe81cb16e09bec1be2f6f090e7b9b11786dd` and is verified by Android workflow run `33245899904` through TypeScript/Vite, Android 16, debug APK, Play AAB, SHA/build manifest and artifact upload.
+Current verified gameplay implementation before this milestone:
+`6925ae171f0cff3aae1373a9c1149465db7a4a62`
+
+Milestone 04 is verified by Android workflow run `33246717365` (#132), completed SUCCESS through TypeScript/Vite, Android 16, debug APK, Play AAB, hashes and artifact upload.
 
 ## Goal
 
-Make the facility react as one believable security environment instead of a collection of unrelated awareness meters, while turning the Milestone 03 staff credential into the first real social-stealth tool and giving the existing OBSERVE control a contextual infiltration use.
+Make the operation genuinely replayable instead of a single hard-coded sequence that always resolves the same way.
 
-This milestone must deepen systemic spycraft without adding combat, another movement controller, another NPC state machine, another zone system, or a large new HUD.
+Preserve the readable high-level mission flow:
 
-The target is an original CUMA WORLD cinematic spy-thriller. Do not copy another game's names, UI, exact mechanics, dialogue, missions, characters or assets.
+`BRIEFING -> RECON -> PLANNING -> INFILTRATE -> EXTRACT -> COMPLETE`
+
+and preserve the required operation order:
+
+`ACCESS -> MANIFEST -> VERIFY -> EXTRACT`
+
+but turn the stages into a small reusable mission graph where a required stage may have more than one valid resolution, optional objectives add risk/reward, discovered intel changes available solutions, NPC routines vary between runs, and the debrief can explain how the player solved the mission.
+
+This is an original CUMA WORLD cinematic spycraft system. Do not copy another game's missions, dialogue, UI, characters, proprietary systems or assets.
+
+No combat or weapon work belongs in this milestone.
 
 ---
 
-# Part A — One authoritative Facility Security State
+# Part A — Data-driven mission graph
 
-Create ONE reusable facility-level security controller, preferably a focused module such as `src/game/facility-security.ts` if that fits the architecture.
+Inspect `src/game/mission.ts`, `src/game/operation-depth.ts`, `src/game/runtime11.ts`, `src/game/debrief.ts`, `src/game/world-expansion.ts`, `src/game/doors.ts`, `src/game/npc.ts`, and the Milestone 04 facility/security APIs before editing.
 
-Suggested state model:
-- CALM
-- WATCH
-- SEARCH
-- HIGH_ALERT
+`mission.ts` currently hard-codes stage transitions with direct `if` branches and has only one general mission opportunity (`camera_bypass`). Refactor this minimally into ONE reusable graph/stage model.
 
-Names may differ, but there must be one authoritative state and one small typed snapshot/API.
+A mission node/stage should be able to describe at minimum:
+- id
+- required vs optional
+- prerequisites
+- one or more valid resolution ids / methods
+- whether it blocks extraction
+- score contribution
+- optional route/intel requirements for a resolution
 
-The controller should know at minimum:
-- current facility security state
-- a normalized security pressure/heat value
-- whether there is a valid last-known incident/search anchor
-- how long since confirmed contact
-- whether the current state is escalating or recovering
+Do not build a generic enterprise workflow engine. Keep the API small and specific to this game.
 
-Security state inputs may include:
-- guard visual suspicion crossing meaningful thresholds
-- confirmed guard ALERT
-- confirmed CCTV ALERT
-- repeated local suspicious events
-- existing security-network broadcasts
-- sustained zone suspicion only as a weak contributor
+Required stages remain:
+- ACCESS
+- MANIFEST
+- VERIFY
+- DONE / EXTRACT
 
 Rules:
-- ordinary footsteps alone can NEVER force HIGH_ALERT
-- a normal door-noise event alone can NEVER force HIGH_ALERT
-- a single CURIOUS guard is not a facility emergency
-- a confirmed visual/CCTV alert may cause SEARCH/HIGH_ALERT according to clear thresholds
-- do not give all guards the player's current position
-- facility state may share a LAST-KNOWN incident point, never magical live tracking
-- recovery must use hysteresis/timers so the state does not flicker every frame
-- after contact is lost and the player remains quiet/unseen, HIGH_ALERT -> SEARCH -> WATCH -> CALM should be possible
+- the player completes a stage by using ONE valid resolution for that stage
+- a stage must never complete twice
+- resolving one method must disable duplicate completion from its alternate method
+- progression must survive save/resume
+- old saves with only `operationStep` must migrate safely
+- existing `document.body.dataset.operationStep` compatibility must remain because Milestone 03 credential/doors consume it
+- do not create a second MissionDirector
 
-Publish a compact signal such as `document.body.dataset.securityState` only if useful. Avoid per-frame DOM writes.
-
-Do not replace `MissionDirector.reportAlert()` scoring. Confirmed alert events should still count for mission/debrief exactly once per real alert cycle.
+Expose enough typed read-only state for runtime, FIELD FOCUS and debrief to know which resolution was used.
 
 ---
 
-# Part B — Coordinated multi-point search
+# Part B — Give MANIFEST and VERIFY real alternate solutions
 
-Extend the existing NPC investigation/search architecture in `src/game/npc.ts`; do NOT build a second AI state machine.
+Keep the current targets; do not delete the existing path.
 
-Current AI already has:
-- NORMAL / CURIOUS / SUSPICIOUS / ALERT
-- last-known position
-- investigation
-- a local search timer
-- security broadcasts
-- hearing
+Add at least these original alternate resolution concepts, adapting exact coordinates to the real world after inspection:
 
-Build on those.
+## MANIFEST
 
-Desired behavior:
+Resolution A — current records route:
+- existing BACK OFFICE / RECORDS manifest terminal
+- RESTRICTED risk
 
-### WATCH
-- security NPCs become more observant without knowing the player location
-- small authored scan/pause behavior is acceptable
-- normal worker NPC behavior should not turn into security behavior
+Resolution B — loading/stock ledger route:
+- add a believable read-only delivery/stock manifest board or ledger in the existing loading/stock network
+- it becomes a valid MANIFEST resolution only when the player has discovered the existing worker/service-route intelligence (`market_worker_route`) or an equivalent already-earned prerequisite
+- this should let a prepared player resolve MANIFEST with less time in the back office, at the cost of exposure to the service route / patrol environment
+- use the existing interaction control
 
-### SEARCH
-- facility has a last-known incident anchor
-- nearby security units receive DIFFERENT local search sectors/points around that anchor instead of all stacking on one coordinate
-- search points must be generated only when needed, not every frame
-- avoid obviously selecting a point through a solid wall when practical; cheap LOS/path-clear tests are acceptable
-- guards should inspect, turn, pause and move between a small number of local points
-- if no new evidence appears, search eventually relaxes
+## VERIFY
 
-### HIGH_ALERT
-- confirmed contact produces the strongest coordinated response
-- nearby security may move/search faster and scan more aggressively, within reasonable mobile/gameplay limits
-- CCTV may become slightly more responsive, but JAM and permanent bypass must remain meaningful
-- the player still wins by breaking sight, reducing noise and leaving the last-known area
-- no perfect omniscience
+Resolution A — current delivery-counter physical record
+- preserve the existing VERIFY target
 
-Do NOT add weapons, gore or combat behavior in this milestone.
+Resolution B — monitoring-room cross-check
+- add a read-only fictional shipment/timestamp cross-check at the existing SECURITY / MONITORING room
+- requires the already-discovered camera/security intelligence (`market_camera`) or an equivalent earned prerequisite
+- this is a higher-risk RESTRICTED resolution, not a hack
+- no real security bypass instructions or realistic intrusion procedure
 
-Do not add a navmesh rewrite. Use the current movement architecture and small, defensible search-point validation.
+The alternate resolution must satisfy VERIFY exactly once and then move to EXTRACT like the original target.
+
+Do not make one route objectively superior. The trade-off should be location, surveillance, zone pressure, patrol exposure and available intel.
+
+ACCESS remains the required credential stage from previous milestones unless the existing architecture proves a safe alternative can be added without weakening the staff-credential system. Do not destabilize credential semantics just to force another branch.
 
 ---
 
-# Part C — Facility reaction through existing doors
+# Part C — Two meaningful optional objectives
 
-Reuse the ONE Milestone 03 door/access system.
+Add exactly two compact optional objectives for this mission. They must be skippable and must never block extraction.
 
-When security escalates:
-- selected controlled doors may automatically close for readable facility response
-- never permanently hard-lock every route
-- never create an unwinnable softlock
-- existing access requirements remain authoritative
-- a door that the player is entitled to use must remain usable after it closes
-- utility/stock alternate routes must remain meaningful
+Suggested original objectives:
 
-Do not add a second door registry.
+1. `SECONDARY_RECORDS`
+   - located in the records/back-office area
+   - interact with a secondary shipment/archive record
+   - creates extra RESTRICTED exposure
+   - adds debrief/score credit
 
-Automatic security closing should be silent or use the existing deliberate door-noise rules only if player-caused. Do not spam environment impulses.
+2. `SHIFT_PATTERN`
+   - inspect a staff shift/delivery schedule board in a believable STAFF or back-office location
+   - completion unlocks a useful staff-routine opportunity described below
+   - adds debrief/score credit
 
----
-
-# Part D — First real social-stealth / COVER STORY interaction
-
-Turn the existing fictional STAFF CREDENTIAL into a limited social-stealth opportunity.
-
-Use an original CUMA WORLD concept such as `COVER STORY` / `PERSONEL KARTINI GÖSTER` / `RUTİNİ DOĞRULA`.
-
-This must use the EXISTING interact control. Do not add a permanent BLUFF button and do not create a dialogue tree.
-
-A social check should only become actionable when conditions are believable, for example:
-- player is in a STAFF zone, NOT RESTRICTED
-- player currently has the staff credential
-- a relevant guard is close enough and has visual contact
-- that guard is CURIOUS or low/mid SUSPICIOUS, not fully ALERT
-- facility is not in HIGH_ALERT
-- player is standing normally, not crouched in cover
-- player is not currently sprinting
-- recent player noise is low enough
-- social check cooldown/usage rules allow it
-
-On successful COVER STORY:
-- lower that specific guard's awareness by a bounded amount; do not erase it to zero automatically
-- reduce STAFF zone suspicion by a bounded amount through the existing zone model
-- optionally delay/reduce escalation into WATCH when appropriate
-- give restrained feedback/haptic
-- create a meaningful cooldown so it is an opportunity, not infinite invisibility
-
-It must NOT work in RESTRICTED rooms.
-It must NOT work against an ALERT guard.
-It must NOT instantly clear SEARCH/HIGH_ALERT for the whole facility.
-It must NOT create fake spoken dialogue if no dialogue system exists.
-
-Add the smallest reusable API needed, e.g. a way for `NpcSystem` to expose a current social-check target and resolve a bounded de-escalation.
-
-Interaction priority must remain deterministic with terminals, doors, CCTV and mission objectives.
-
----
-
-# Part E — FIELD FOCUS using the existing OBSERVE control
-
-Do not add another permanent action button.
-
-The current `OBSERVE` / recon control already exists.
-
-Preserve current behavior during:
-- BRIEFING / RECON / PLANNING: existing recon/analysis behavior remains intact
-
-During:
-- INFILTRATE / EXTRACT
-
-the same control should become a short original tactical-assistance mode called `FIELD FOCUS` or Turkish UI equivalent such as `SAHA ODAĞI`.
-
-FIELD FOCUS requirements:
-- short active duration, roughly 2-4 seconds
-- meaningful cooldown, roughly 7-12 seconds
-- no time slowdown
-- no permanent wallhack
-- never reveal unknown NPCs through walls
-- never reveal every enemy indefinitely
-- no expensive full-screen post effect required
-
-It MAY briefly emphasize only information the player has earned or can already reasonably perceive, such as:
-- current operation target / objective context
-- nearby known door/access states
-- previously discovered intel-linked opportunities
-- known CCTV opportunity if camera intel was discovered
-- extraction context when active
-- facility security state / last-known search context in an abstract way
-
-Prefer world-space markers/outlines/status treatment for a small number of relevant known objects. Reuse/pool markers where practical.
-
-FIELD FOCUS should make spycraft more readable, not solve the mission automatically.
-
-LOW tier:
-- fewer simultaneous markers
-- no expensive animation requirement
-
-Reduced Motion:
-- static/faded presentation instead of pulse/sweep motion
-
-The existing recon system must remain unchanged before infiltration.
-
----
-
-# Part F — Security / social feedback
-
-Add restrained mobile-readable feedback only.
-
-A compact facility status may display states like:
-- TESİS · NORMAL
-- TESİS · İZLEME
-- TESİS · ARAMA
-- TESİS · YÜKSEK ALARM
-
-Exact Turkish labels may differ.
-
-Rules:
-- no giant alert banner permanently covering play
-- no constant screen shake
-- no cinematic bars
-- no cheap neon overload
-- update DOM only when displayed state changes
-- respect safe areas and landscape
-- Reduced Motion removes nonessential movement
-
-Existing awareness, stealth signals, cover status and door status remain usable; do not create redundant meters for the same value.
-
----
-
-# Part G — Zone model support for social stealth
-
-Extend the existing `src/game/zones.ts`; do not create a second suspicion model.
-
-Add only the smallest API needed for a successful social check, such as a bounded suspicion reduction.
+Names can be improved if needed, but keep them original and readable in Turkish UI.
 
 Requirements:
-- reduction cannot make RESTRICTED areas socially safe
-- COVER STORY only affects STAFF social suspicion
-- returning to PUBLIC still uses normal recovery
-- existing credential scaling remains authoritative
-- no negative suspicion values
-- no per-frame extra DOM reads
+- optional objective state belongs to the mission system, not a second quest manager
+- completion persists in the current save
+- old saves default to incomplete without crashing
+- FIELD FOCUS may mark a discovered/known optional objective when appropriate
+- the objective should have a physical world reason and risk/reward, not merely a menu checkbox
 
 ---
 
-# Part H — Existing gadgets must interact sensibly with facility state
+# Part D — Generalize mission opportunities
 
-Preserve SCAN / SIGNAL JAM / DECOY.
+Extend the existing `opportunities` concept rather than creating another opportunity manager.
 
-Expected interactions:
-- DECOY can create a false local incident/search point, but must not automatically force HIGH_ALERT
-- SIGNAL JAM still suppresses CCTV temporarily even during SEARCH/HIGH_ALERT
-- permanent CCTV bypass remains valuable
-- SCAN/FIELD FOCUS responsibilities should not duplicate each other completely
-  - SCAN = gadget/intel signal discovery/readability
-  - FIELD FOCUS = short contextual tactical readability using already-earned knowledge
+Preserve `camera_bypass` exactly as a valid opportunity.
 
-Do not delete or rename existing gadgets unnecessarily.
+Add at least two original, non-combat environmental opportunities:
+
+## 1. STAFF ROUTINE WINDOW
+
+Unlocked by completing/discovering the relevant staff schedule / shift-pattern information.
+
+Effect:
+- use one existing contextual interaction point such as a schedule/dispatch board
+- starts a short, bounded routine window (roughly 15–25 seconds)
+- one worker/staff NPC follows an authored alternate routine toward loading/stock or another believable staff task
+- creates a temporary gap in the staff corridor
+- does NOT reduce all security heat
+- does NOT affect security guards in SEARCH/HIGH_ALERT
+- one use per run unless architecture strongly justifies otherwise
+
+This is a fictional scheduling opportunity, not impersonation instructions for the real world.
+
+## 2. DELIVERY CART / MOBILE COVER OPPORTUNITY
+
+Unlocked by `market_worker_route`, SHIFT_PATTERN, or another earned staff-route condition.
+
+Effect:
+- a delivery cart / rolling stock object in the staff/loading network can move between authored positions
+- the moved object changes a real sightline or creates useful physical cover
+- its final geometry must work with the existing directional SİPER system
+- it must not clip, block every route, or create a permanent softlock
+- moving it may create a small environment-noise impulse through the existing authoritative noise system if appropriate
+- no new physics engine or freeform object dragging is needed; use controlled authored positions
+
+Opportunity requirements:
+- opportunity discovery/availability and use must be typed and visible to mission/debrief state
+- using one must not automatically complete a required mission stage
+- opportunity use should contribute modestly to score/debrief
+- do not create a large opportunity menu
+- existing interaction ownership remains deterministic
 
 ---
 
-# Part I — Save / mission / replay compatibility
+# Part E — NPC routine variation
 
-Do not break the existing mission save.
+Milestone 04 improved facility response, but base patrol loops are still mostly deterministic.
 
-Facility security state and temporary FIELD FOCUS cooldown do NOT need to persist across app restart unless there is a compelling architectural reason.
+Extend the existing `npc.ts` route/patrol ownership; do NOT create a second scheduler or AI state machine.
 
-Mission progression remains:
-ACCESS -> MANIFEST -> VERIFY -> EXTRACT.
+Create a compact routine/waypoint model supporting at minimum:
+- waypoint position
+- optional dwell/pause duration
+- optional look direction / look sweep
+- role-appropriate behavior
+- at least two authored route variants for security where the real geometry supports them
+- a worker/staff routine distinct from security behavior
 
-Existing route, intel, alerts, opportunities and score remain compatible.
+Requirements:
+- NPCs must not all pause/turn at the same time
+- use deterministic pseudo-random variation from a persisted per-run seed rather than calling random every frame
+- the same saved run resumes with the same routine variation
+- pressing REPLAY / starting a fresh mission should generate a new run seed so patrol timing/path variation can differ
+- SEARCH/HIGH_ALERT from Milestone 04 overrides normal routine as appropriate, then NPCs return cleanly to their routine after recovery
+- STAFF ROUTINE WINDOW may temporarily select an authored worker alternate routine
+- never route an NPC from the player's live position
+- no per-NPC `requestAnimationFrame`, `setInterval`, or per-frame random allocations
+- LOW tier may use simpler look/pause presentation while preserving actual route differences
 
-If COVER STORY is added to opportunity scoring, generalize the known opportunity-id restore path safely and keep old saves valid. Do not change save schema unless necessary.
+Do not add more NPCs merely to make the system look deeper. Improve behavior of the current cast first.
 
 ---
 
-# Part J — Performance requirements
+# Part F — Recon/intel must explain the new choices
 
-Mobile cost matters.
+Do not add a giant planning screen yet.
 
-- one facility-security update path; no timer/RAF per guard or room
-- do not add per-frame full-scene scans
-- generate search sectors only on incident/state changes or low cadence
-- reuse existing LOS/sensing results where practical
-- no new raycast per NPC per rendered frame unless absolutely justified
-- pool/reuse vectors/markers where reasonable
-- FIELD FOCUS must have bounded marker count
-- no new dynamic lights required
-- no expensive post-processing requirement
-- avoid per-frame DOM writes
-- LOW tier must retain all gameplay behavior with cheaper presentation/cadence
-- keep existing JS bundle budgets green
+Use existing RECON / PLANNING presentation to make earned choices understandable:
+- worker-route intel should clearly imply the loading/ledger route and/or cart opportunity
+- camera intel should clearly imply the monitoring-room VERIFY path and existing CCTV opportunity
+- completed SHIFT_PATTERN should make STAFF ROUTINE WINDOW readable
+- FIELD FOCUS during infiltration may show only the alternate solutions/opportunities the player has actually earned
 
-Do not perform an unrelated large boot-chunk refactor in this milestone. The known `debrief -> mission -> operation-depth -> world-expansion -> doors` startup dependency is documented; keep new dependencies pointed away from the boot path where practical.
+No permanent enemy markers and no new wallhack.
+
+SCAN remains signal discovery.
+FIELD FOCUS remains known-context readability.
+
+---
+
+# Part G — Rich mission result and debrief
+
+The current `debrief.ts` scrapes the HUD text with regular expressions and directly imports `mission.ts`. This is brittle and also pulls `mission -> operation-depth -> world-expansion -> doors` toward the startup bundle.
+
+Because this milestone already changes mission result data, replace that dependency with a small typed result handoff.
+
+Preferred shape:
+- MissionDirector exposes/builds a typed `MissionResult` or immutable completion snapshot
+- runtime or mission layer publishes one completion event/signal when COMPLETE is reached
+- debrief consumes that result directly rather than parsing the objective/HUD string
+- if the game loads a save already in COMPLETE, debrief still receives a valid result
+
+Debrief should show compactly:
+- rank
+- score
+- route used
+- MANIFEST resolution used
+- VERIFY resolution used
+- optional objectives completed (0/2, 1/2, 2/2)
+- intel found
+- opportunities used
+- alert count or a compact security-performance line
+- one short replay hint based on an unused major route/resolution when available
+
+Do not turn debrief into a desktop analytics dashboard.
+
+### Startup dependency improvement
+
+If it can be done cleanly within this work, break the known startup dependency:
+`debrief -> mission -> operation-depth -> world-expansion -> doors`
+
+A good approach is moving the tiny save-reset helper into a dependency-light storage/result module that both mission and debrief can use.
+
+Requirements:
+- do NOT duplicate save keys or reset logic
+- replay still clears the current mission correctly
+- measure boot chunk before/after
+- do not perform a broad bundler refactor unrelated to the mission/debrief edge
+
+---
+
+# Part H — Scoring and rank
+
+Preserve the existing GHOST / SHADOW / OPERATIVE rank concept.
+
+Refine score so it rewards meaningful play instead of only raw intel count:
+- required mission completion
+- optional objectives
+- useful opportunities
+- optional intel
+- low alert count
+- completing an alternate resolution should not itself be worth more than the normal resolution; risk/reward should come from optional goals and security performance
+
+Keep score 0..100 and make the formula understandable/tunable with named values.
+
+Do not punish a player merely for choosing MAIN versus SIDE route.
+
+---
+
+# Part I — Save migration and replay seed
+
+Extend the existing save object with optional backward-compatible fields as needed, for example:
+- `runSeed`
+- stage resolution ids
+- optional-objective ids
+- expanded opportunity ids
+
+Rules:
+- do not change the existing storage key unless absolutely necessary
+- old saves must load without crashing
+- old INFILTRATE saves with only `operationStep` must get sensible unresolved/default branch state
+- COMPLETE old saves must still show a usable debrief
+- replay must clear mission progress and generate a fresh run seed on the next run
+- runtime-only Milestone 04 facility heat/focus/social cooldown should remain runtime-only unless there is a strong gameplay reason otherwise
+
+---
+
+# Part J — Preserve all previous milestones
+
+Do NOT regress Milestone 01:
+- authoritative noise/hearing
+- landing impulses
+- zone suspicion/recovery
+- DECOY behavior
+
+Do NOT regress Milestone 02:
+- directional cover
+- observer-specific protection
+- cover movement/camera
+- RUN/JUMP cover exits
+
+Do NOT regress Milestone 03:
+- connected facility topology
+- one Door/Access system
+- staff credential
+- front/side/utility routes
+- door collision/noise
+
+Do NOT regress Milestone 04:
+- CALM/WATCH/SEARCH/HIGH_ALERT
+- incident ceilings
+- last-known anchor instead of live-player wall tracking
+- coordinated multi-point search
+- COVER STORY rules/cooldown
+- FIELD FOCUS
+- CCTV facility integration
+- security-door close behavior
+
+Preserve mobile multitouch, settings, graphics tiers, pause/background/resume and current Android lifecycle behavior.
+
+---
+
+# Performance requirements
+
+- do not evaluate the entire mission graph by scanning every node every frame
+- mission progression should be event-driven where practical
+- do not allocate route variants every NPC update
+- deterministic routine choices should be generated once per run/agent
+- optional-objective and opportunity prompts use the existing interaction resolver
+- no per-frame DOM writes for mission/debrief state
+- mobile cover/cart geometry must remain cheap
+- keep boot, largest chunk and total JS budgets green
+- report boot chunk before/after, especially if the debrief->mission dependency is broken
 
 ---
 
 # Acceptance scenarios
 
-1. One guard becomes CURIOUS from a normal door sound: facility does NOT jump to HIGH_ALERT.
-2. A guard clearly sees the player long enough to ALERT: facility escalates and stores a last-known incident point.
-3. Player breaks sight and moves quietly: guards search the last-known area, not the player's live hidden position.
-4. Two security guards in SEARCH choose meaningfully different local search points/sectors instead of stacking exactly together.
-5. With no new evidence, facility de-escalates over time from HIGH_ALERT/SEARCH toward WATCH/CALM.
-6. CCTV confirmed detection can escalate facility state; SIGNAL JAM still suppresses CCTV and does not instantly clear existing human search.
-7. During escalation, controlled doors may close but no valid route is permanently locked and current fictional access requirements still work.
-8. In STAFF with credential and a CURIOUS/SUSPICIOUS guard, calm normal-standing player can get a contextual COVER STORY interaction.
-9. Successful COVER STORY lowers only that guard and some STAFF suspicion; it does not erase the whole facility state.
-10. COVER STORY is unavailable while crouched/in cover, sprinting/noisy, in RESTRICTED, against ALERT, or during HIGH_ALERT.
-11. Before infiltration, OBSERVE still performs recon exactly as before.
-12. During INFILTRATE/EXTRACT, OBSERVE becomes short FIELD FOCUS with cooldown and highlights only known/contextual information.
-13. FIELD FOCUS never reveals unknown NPCs through walls and never becomes permanent wallhack.
-14. LOW tier and Reduced Motion preserve the mechanic with cheaper/static presentation.
-15. Pause/background/resume clears or freezes temporary focus/social/security timers without duplicate listeners or stuck UI.
-16. Existing ACCESS -> MANIFEST -> VERIFY -> EXTRACT mission remains completable on both front and side routes.
-17. Old saves load without crashing.
+1. Existing normal path still works: ACCESS terminal -> records MANIFEST -> delivery-counter VERIFY -> EXTRACT.
+2. Prepared player with worker-route intel can complete MANIFEST through the loading/stock ledger instead of the records terminal.
+3. Prepared player with camera intel can complete VERIFY through the monitoring-room cross-check instead of the delivery counter.
+4. Resolving MANIFEST or VERIFY through one method disables duplicate completion through the alternate method.
+5. Two optional objectives can both be ignored and the mission remains completable.
+6. Completing optional objectives increases score/debrief credit and one of them unlocks STAFF ROUTINE WINDOW.
+7. STAFF ROUTINE WINDOW temporarily changes the worker's authored routine without changing guard knowledge or erasing facility heat.
+8. Delivery-cart opportunity moves to an authored position, changes a real sightline/cover option, and never blocks all routes.
+9. Two fresh replays can select different patrol dwell/route variation, while saving/resuming the same run preserves its variation.
+10. SEARCH/HIGH_ALERT still overrides normal routines and guards return cleanly after recovery.
+11. FIELD FOCUS shows only alternate resolutions/opportunities actually earned by intel/objectives.
+12. Debrief reports route, resolution choices, optional-objective count, intel, opportunities, alerts, rank and score without regex-parsing HUD prose.
+13. Old saves load safely; old INFILTRATE progress remains completable.
+14. Replay resets mission progress and creates a fresh run variation seed.
+15. All previous front/side/utility traversals, doors, credential, CCTV, cover, hearing, facility security and social stealth remain functional.
 
 ---
 
@@ -325,24 +373,23 @@ Do not perform an unrelated large boot-chunk refactor in this milestone. The kno
 Before committing:
 - run `npm run build`
 - fix every TypeScript/Vite failure
-- inspect changed files for unrelated rewrites
-- confirm there is ONE facility-security controller
-- confirm existing NpcSystem investigation/search remains the AI foundation
-- confirm social interaction uses existing interact ownership
-- confirm recon is unchanged before infiltration
-- confirm no unknown-NPC wallhack was introduced
-- inspect pause/resume cleanup
-- keep bundle budgets green
+- verify all three bundle budgets
+- inspect the save migration manually with representative old payload shapes
+- simulate or unit-check the mission graph so alternate resolutions cannot double-complete a stage
+- inspect replay seed stability: same saved run stable, reset run changes seed
+- inspect interaction ownership so optional/objective/opportunity prompts cannot fight doors/terminals/COVER STORY
+- inspect SEARCH/HIGH_ALERT -> routine recovery
+- confirm no new combat/weapon system and no duplicate AI/mission/opportunity managers
 
 Commit message suggestion:
-`feat: coordinate facility security and social stealth`
+`feat: branch mission solutions and replay routines`
 
 After pushing:
-- manually dispatch `.github/workflows/android-play-runtime.yml` against `claude/full-game-development` if it does not auto-run
-- verify the exact workflow run for the gameplay commit
-- because the job-step endpoint has repeatedly served stale snapshots, confirm final status from workflow-run completion PLUS artifact/job-log evidence when needed
-- do not claim APK/AAB success until artifact/build evidence exists
-- update `CLAUDE_CODE_HANDOFF.md` with gameplay HEAD, changed files, facility state API, AI behavior, social-check rules, FIELD FOCUS behavior, performance, CI result, real-device checks and planned Milestone 05
+- dispatch `.github/workflows/android-play-runtime.yml` against `claude/full-game-development` if needed
+- verify the workflow for the exact gameplay commit
+- final CI truth comes from completed run status plus artifact/job log; do not rely on a stale step snapshot
+- do not claim APK/AAB success until the artifact/build evidence exists
+- update `CLAUDE_CODE_HANDOFF.md` with gameplay HEAD, mission-graph API, resolution ids, optional objectives, opportunities, routine model, run-seed behavior, debrief/result contract, bundle measurements, CI result and remaining real-device checks
 
 Then STOP.
-Do not begin Milestone 05 in the same implementation commit.
+Do not begin Milestone 06 in the same implementation commit.
