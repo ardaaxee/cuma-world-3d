@@ -247,7 +247,7 @@ class ServiceRouteExpansion {
       {
         id: "staff-market", label: "PERSONEL KAPISI", access: "STAFF_CREDENTIAL" as const,
         position: new Vector3(-2.0, DOOR_Y, 14), slideAxis: "x" as const, slideSign: -1 as const,
-        autoCloseSeconds: 8,
+        autoCloseSeconds: 8, securityCloses: true,
       },
       {
         id: "stock-service", label: "STOK KAPISI", access: "NONE" as const,
@@ -260,10 +260,12 @@ class ServiceRouteExpansion {
       {
         id: "back-office", label: "ARKA OFİS KAPISI", access: "NONE" as const,
         position: new Vector3(-4.7, DOOR_Y, PARTITION_Z), slideAxis: "x" as const, slideSign: -1 as const,
+        securityCloses: true,
       },
       {
         id: "security-room", label: "GÜVENLİK ODASI KAPISI", access: "SECURITY_ACCESS" as const,
         position: new Vector3(2.1, DOOR_Y, PARTITION_Z), slideAxis: "x" as const, slideSign: -1 as const,
+        securityCloses: true,
       },
     ];
 
@@ -279,6 +281,7 @@ class ServiceRouteExpansion {
         slideAxis: door.slideAxis,
         slideSign: door.slideSign,
         autoCloseSeconds: door.autoCloseSeconds,
+        securityCloses: door.securityCloses,
       });
       mesh.material = material;
     }

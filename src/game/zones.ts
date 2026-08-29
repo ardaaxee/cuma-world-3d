@@ -168,6 +168,18 @@ export function getZoneSuspicion(): number {
   return suspicion;
 }
 
+/**
+ * Bounded relief from a successful cover story. It only applies while the
+ * player is in a STAFF area, so it can never make a RESTRICTED room socially
+ * safe, and it never drives suspicion negative.
+ */
+export function relaxZoneSuspicion(amount: number): boolean {
+  if (currentZone !== "STAFF" || amount <= 0) return false;
+  suspicion = Math.max(0, suspicion - amount);
+  snapshot.suspicion = suspicion;
+  return true;
+}
+
 export function resetZonePresence(): void {
   suspicion = 0;
   recoveryDelay = 0;

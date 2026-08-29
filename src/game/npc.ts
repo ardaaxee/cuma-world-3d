@@ -19,6 +19,13 @@ import {
   samplePlayerNoise,
 } from "./noise";
 import {
+  getAnchorVersion,
+  getFacilityState,
+  readSearchAnchor,
+  reportIncident,
+  type FacilityState,
+} from "./facility-security";
+import {
   ZONE_AWARENESS_GAIN,
   ZONE_INVESTIGATE_FLOOR,
   ZONE_INVESTIGATE_THRESHOLD,
@@ -58,6 +65,31 @@ const IMPULSE_AWARENESS_FLOOR_GAIN = 0.14;
 /** Sustained zone pressure re-checks are rare and never stack into an alert. */
 const ZONE_INVESTIGATE_COOLDOWN = 9;
 
+/** Facility posture multipliers applied to security units only. */
+const POSTURE_AWARENESS_SCALE: Record<FacilityState, number> = {
+  CALM: 1,
+  WATCH: 1.12,
+  SEARCH: 1.2,
+  HIGH_ALERT: 1.3,
+};
+
+/** Coordinated search: guards fan out around the anchor instead of stacking. */
+const SEARCH_RING_MIN = 2.4;
+const SEARCH_RING_MAX = 5.2;
+const SEARCH_POINT_REFRESH_SECONDS = 6.5;
+const SEARCH_ASSIGN_FLOOR = 0.34;
+/** Golden-angle spacing keeps consecutive assignments far apart. */
+const SEARCH_ANGLE_STEP = 2.399963;
+
+/** A guard counts as having eye contact for this long after it is lost. */
+const SOCIAL_CONTACT_MEMORY = 1.3;
+/** Above this the guard is too committed to accept a cover story. */
+const SOCIAL_MAX_AWARENESS = 0.72;
+const SOCIAL_RANGE = 6.5;
+/** Bounded: a cover story calms a guard, it never blanks them. */
+const SOCIAL_AWARENESS_DROP = 0.34;
+const SOCIAL_AWARENESS_FLOOR = 0.08;
+
 export interface AwarenessSnapshot {
   state: AwarenessState;
   meter: number;
@@ -81,6 +113,10 @@ type PendingBroadcast = {
 /** Shared scratch state so hearing never allocates inside the sensing loop. */
 const hearingPoint = new Vector3();
 const hearingRay = new Ray(Vector3.Zero(), new Vector3(0, 0, 1), 1);
+const searchAnchor = new Vector3();
+const searchPoint = new Vector3();
+const searchDirection = new Vector3();
+const searchRay = new Ray(Vector3.Zero(), new Vector3(0, 0, 1), 1);
 const occludesSound = (mesh: AbstractMesh): boolean =>
   mesh instanceof Mesh && mesh.checkCollisions && mesh.isEnabled();
 
@@ -101,6 +137,9 @@ class NpcAgent {
   private hearingPressure = 0;
   private hearingCooldown = 0;
   private occlusionRays = true;
+  private contactMemory = 0;
+  private posture: FacilityState = "CALM";
+  private scanPhase = 0;
 
   constructor(
     private readonly scene: Scene,
@@ -159,6 +198,7 @@ class NpcAgent {
     this.investigateTimer = Math.max(0, this.investigateTimer - dt);
     this.searchTimer = Math.max(0, this.searchTimer - dt);
     this.hearingCooldown = Math.max(0, this.hearingCooldown - dt);
+    this.contactMemory = Math.max(0, this.contactMemory - dt);
     this.updatePatrol(dt);
     this.senseTimer -= dt;
     if (this.senseTimer <= 0) {
@@ -182,6 +222,7 @@ class NpcAgent {
       this.senseTimer = this.senseInterval;
       this.hearingPressure = 0;
       this.hearingCooldown = 0;
+      this.contactMemory = 0;
     }
   }
 
@@ -213,6 +254,54 @@ class NpcAgent {
     return this.config.security;
   }
 
+  /** Facility posture only changes how security units behave, never workers. */
+  setPosture(value: FacilityState): void {
+    this.posture = this.config.security ? value : "CALM";
+  }
+
+  awarenessMeter(): number {
+    return this.awareness;
+  }
+
+  awarenessState(): AwarenessState {
+    return this.state;
+  }
+
+  name(): string {
+    return this.config.name;
+  }
+
+  /** True while this guard still has (or just had) eye contact with the player. */
+  hasRecentContact(): boolean {
+    return this.contactMemory > 0;
+  }
+
+  /**
+   * Bounded de-escalation from a successful cover story. It lowers this one
+   * guard and nothing else, and never drops them to zero.
+   */
+  acceptCoverStory(): boolean {
+    if (!this.enabled || this.state === "ALERT") return false;
+    this.awareness = Math.max(SOCIAL_AWARENESS_FLOOR, this.awareness - SOCIAL_AWARENESS_DROP);
+    this.investigateTimer = 0;
+    this.searchTimer = 0;
+    this.lastSeenPosition = null;
+    this.hearingPressure = 0;
+    this.contactMemory = 0;
+    this.refreshState();
+    return true;
+  }
+
+  /** Sends this guard to its own assigned search point around the anchor. */
+  assignSearchPoint(point: Vector3): void {
+    if (!this.enabled || !this.config.security) return;
+    this.lastSeenPosition = point.clone();
+    this.investigateTimer = this.posture === "HIGH_ALERT" ? 6.4 : 5.2;
+    this.searchTimer = 0;
+    this.awareness = Math.max(this.awareness, SEARCH_ASSIGN_FLOOR);
+    this.refreshState();
+  }
+
   lastKnownPosition(): Vector3 | null {
     return this.lastSeenPosition?.clone() ?? null;
   }
@@ -228,8 +317,12 @@ class NpcAgent {
   }
 
   private updatePatrol(dt: number): void {
+    // Facility posture makes security units move with more urgency; it never
+    // tells them where the player is.
+    const urgency = this.posture === "HIGH_ALERT" ? 1.35 : this.posture === "SEARCH" ? 1.18 : 1;
+
     if (this.lastSeenPosition && this.investigateTimer > 0 && this.state !== "NORMAL") {
-      const investigateSpeed = this.state === "ALERT" ? 1.18 : this.state === "SUSPICIOUS" ? 0.88 : 0.66;
+      const investigateSpeed = (this.state === "ALERT" ? 1.18 : this.state === "SUSPICIOUS" ? 0.88 : 0.66) * urgency;
       if (this.moveToward(this.lastSeenPosition, investigateSpeed, dt) < 0.34) {
         this.investigateTimer = 0;
         this.searchTimer = this.config.security ? 3.6 : 2.2;
@@ -239,20 +332,28 @@ class NpcAgent {
     }
 
     if (this.searchTimer > 0 && this.state !== "NORMAL") {
-      const searchSpeed = this.config.security ? 0.86 : 0.62;
+      const searchSpeed = (this.config.security ? 0.86 : 0.62) * urgency;
       this.root.rotation.y += dt * searchSpeed * this.searchDirection;
       return;
     }
 
     if (this.state === "ALERT") {
-      this.root.rotation.y += dt * 0.72;
+      this.root.rotation.y += dt * 0.72 * urgency;
       return;
     }
 
     if (this.route.length < 2) return;
     const destination = this.route[this.routeIndex];
     if (!destination) return;
-    const distance = this.moveToward(destination, this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05, dt);
+    const patrolSpeed = this.state === "SUSPICIOUS" ? 0.45 : this.state === "CURIOUS" ? 0.72 : 1.05;
+    // WATCH: patrol a little slower and keep looking around, without knowing
+    // anything new about the player.
+    const watching = this.posture === "WATCH" && this.state === "NORMAL";
+    const distance = this.moveToward(destination, watching ? patrolSpeed * 0.82 : patrolSpeed, dt);
+    if (watching) {
+      this.scanPhase += dt * 0.9;
+      this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55;
+    }
     if (distance < 0.18) this.routeIndex = (this.routeIndex + 1) % this.route.length;
   }
 
@@ -312,6 +413,7 @@ class NpcAgent {
 
     const rateScale = Math.max(0.42, Math.min(1.4, awarenessRateScale));
     if (visible) {
+      this.contactMemory = SOCIAL_CONTACT_MEMORY;
       // Directional: cover only helps when this guard is actually on the far
       // side of the surface, so an exposed edge reads as no cover at all.
       const coverScale = coverDetectionScale(this.root.position);
@@ -320,7 +422,8 @@ class NpcAgent {
       this.searchTimer = 0;
       const proximity = 1 - Math.min(1, distance / (this.config.security ? 9.0 : 6.2));
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
-      this.awareness = Math.min(1, this.awareness + dt * rate * rateScale * coverScale);
+      const posture = POSTURE_AWARENESS_SCALE[this.posture];
+      this.awareness = Math.min(1, this.awareness + dt * rate * rateScale * coverScale * posture);
     } else {
       const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.2 : 1;
       const searchHold = this.searchTimer > 0 ? 0.62 : 1;
@@ -412,8 +515,11 @@ export class NpcSystem {
   private broadcastCooldown = 0;
   private networkStatusTimer = 0;
   private zoneCheckCooldown = 0;
+  private searchAnchorVersion = -1;
+  private searchRefreshTimer = 0;
+  private searchedState: FacilityState = "CALM";
 
-  constructor(scene: Scene, onAlert: (name: string) => void, addShadowCaster: (mesh: Mesh) => void) {
+  constructor(private readonly scene: Scene, onAlert: (name: string) => void, addShadowCaster: (mesh: Mesh) => void) {
     this.agents = [
       new NpcAgent(scene, {
         name: "GÜVENLİK 01",
@@ -444,6 +550,9 @@ export class NpcSystem {
       const detail = (event as CustomEvent<{ x: number; y: number; z: number }>).detail;
       if (!detail || !Number.isFinite(detail.x) || !Number.isFinite(detail.y) || !Number.isFinite(detail.z)) return;
       const point = new Vector3(detail.x, detail.y, detail.z);
+      // A decoy is a believable false incident: it can seed a local search but
+      // its ceiling keeps it well below a facility emergency.
+      reportIncident("decoy", point.x, point.y, point.z);
       for (const agent of this.agents) {
         if (Vector3.Distance(agent.root.position, point) <= DECOY_NOISE_RADIUS) {
           agent.hearImpulse(point, 1, true);
@@ -462,6 +571,10 @@ export class NpcSystem {
     const zoneRisk = 1 + zoneSuspicion * ZONE_AWARENESS_GAIN;
     this.updateZonePressure(dt, playerPosition, zoneSuspicion);
 
+    const facilityState = getFacilityState();
+    for (const agent of this.agents) agent.setPosture(facilityState);
+    this.updateCoordinatedSearch(dt, facilityState);
+
     for (const [index, agent] of this.agents.entries()) {
       let routeRisk = 1;
       if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
@@ -470,6 +583,7 @@ export class NpcSystem {
       if (snapshot.meter > strongest.meter) strongest = snapshot;
 
       const previous = this.securityStates[index] ?? "NORMAL";
+      if (awarenessActive && agent.isSecurity()) this.reportStateChange(previous, snapshot.state, agent);
       if (agent.isSecurity() && this.shouldBroadcast(previous, snapshot.state) && !this.pendingBroadcast && this.broadcastCooldown <= 0) {
         const point = agent.lastKnownPosition();
         if (point) {
@@ -495,6 +609,109 @@ export class NpcSystem {
       agent.setHearingOcclusion(tier !== "LOW");
       agent.setEnabled(tier !== "LOW" || index < 2);
     });
+  }
+
+  /** Feeds confirmed guard evidence up to the facility controller, once each. */
+  private reportStateChange(previous: AwarenessState, current: AwarenessState, agent: NpcAgent): void {
+    if (current === previous) return;
+    const point = agent.root.position;
+    if (current === "ALERT" && previous !== "ALERT") {
+      reportIncident("guard-alert", point.x, point.y, point.z);
+      return;
+    }
+    if (current === "SUSPICIOUS" && previous !== "SUSPICIOUS" && previous !== "ALERT") {
+      reportIncident("suspicion", point.x, point.y, point.z);
+      return;
+    }
+    // A guard turning curious — from a door, a footstep, anything — is weak
+    // evidence. Its ceiling sits below the search threshold, so any number of
+    // these can raise WATCH and never more.
+    if (current === "CURIOUS" && previous === "NORMAL") {
+      reportIncident("noise", point.x, point.y, point.z);
+    }
+  }
+
+  /**
+   * Fans security units out over distinct points around the facility's
+   * last-known incident anchor. Points are produced only when the anchor or the
+   * facility state changes, or after a refresh interval — never per frame — and
+   * each candidate is rejected if a wall sits between it and the anchor.
+   */
+  private updateCoordinatedSearch(dt: number, facilityState: FacilityState): void {
+    this.searchRefreshTimer = Math.max(0, this.searchRefreshTimer - dt);
+    const searching = facilityState === "SEARCH" || facilityState === "HIGH_ALERT";
+    if (!searching) {
+      this.searchAnchorVersion = -1;
+      this.searchedState = facilityState;
+      return;
+    }
+
+    const version = getAnchorVersion();
+    const stateChanged = this.searchedState !== facilityState;
+    if (version === this.searchAnchorVersion && !stateChanged && this.searchRefreshTimer > 0) return;
+    if (!readSearchAnchor(searchAnchor)) return;
+
+    this.searchAnchorVersion = version;
+    this.searchedState = facilityState;
+    this.searchRefreshTimer = SEARCH_POINT_REFRESH_SECONDS;
+
+    const spread = facilityState === "HIGH_ALERT" ? SEARCH_RING_MAX : SEARCH_RING_MIN + 1.2;
+    let slot = 0;
+    for (const agent of this.agents) {
+      if (!agent.isSecurity()) continue;
+      const angle = (version + slot) * SEARCH_ANGLE_STEP;
+      const radius = SEARCH_RING_MIN + ((slot % 2) * 0.5 + 0.25) * (spread - SEARCH_RING_MIN);
+      this.resolveSearchPoint(angle, radius);
+      agent.assignSearchPoint(searchPoint);
+      slot += 1;
+    }
+  }
+
+  /**
+   * Places one candidate on the ring and pulls it back toward the anchor if a
+   * wall is in the way, so guards do not walk at a point through a wall.
+   */
+  private resolveSearchPoint(angle: number, radius: number): void {
+    searchDirection.copyFromFloats(Math.sin(angle), 0, Math.cos(angle));
+    searchRay.origin.copyFrom(searchAnchor);
+    searchRay.origin.y += 0.9;
+    searchRay.direction.copyFrom(searchDirection);
+    searchRay.length = radius;
+    const blocker = this.scene.pickWithRay(searchRay, occludesSound);
+    const reach = blocker?.hit ? Math.max(0.9, (blocker.distance ?? radius) - 0.6) : radius;
+    searchPoint.copyFrom(searchAnchor);
+    searchPoint.addInPlace(searchDirection.scaleInPlace(reach));
+    searchPoint.y = searchAnchor.y;
+  }
+
+  /**
+   * The guard a cover story could currently be told to: close, looking at the
+   * player, and unsettled but not committed. Returns null when nobody
+   * qualifies. Reuses the sensing results already computed this frame.
+   */
+  socialCheckTarget(playerPosition: Vector3): { index: number; name: string } | null {
+    let best: { index: number; name: string } | null = null;
+    let bestDistance = SOCIAL_RANGE;
+    for (const [index, agent] of this.agents.entries()) {
+      if (!agent.isSecurity() || !agent.hasRecentContact()) continue;
+      const state = agent.awarenessState();
+      if (state !== "CURIOUS" && state !== "SUSPICIOUS") continue;
+      if (agent.awarenessMeter() > SOCIAL_MAX_AWARENESS) continue;
+      const distance = Vector3.Distance(agent.root.position, playerPosition);
+      if (distance > bestDistance) continue;
+      bestDistance = distance;
+      best = { index, name: agent.name() };
+    }
+    return best;
+  }
+
+  /** Applies the bounded de-escalation to exactly one guard. */
+  resolveSocialCheck(index: number): boolean {
+    const agent = this.agents[index];
+    if (!agent) return false;
+    if (!agent.acceptCoverStory()) return false;
+    this.showNetworkStatus("PERSONEL KAYDI DOĞRULANDI", 1.6);
+    return true;
   }
 
   /**

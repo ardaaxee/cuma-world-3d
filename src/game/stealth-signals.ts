@@ -1,5 +1,7 @@
 import "../stealth-signals.css";
 import type { NoiseSample } from "./noise";
+import type { FacilityState } from "./facility-security";
+import { facilityStateLabel } from "./facility-security";
 import type { ZoneSnapshot } from "./zones";
 
 /**
@@ -35,6 +37,9 @@ export class StealthSignalsHud {
   private readonly noiseLabel: HTMLElement;
   private readonly zoneChip: HTMLElement;
   private readonly zoneFill: HTMLElement;
+  private readonly facilityChip: HTMLElement;
+  private readonly facilityLabel: HTMLElement;
+  private publishedFacility = "";
   private clock = 0;
   private lastNoiseBucket = -1;
   private lastZoneKey = "";
@@ -52,6 +57,7 @@ export class StealthSignalsHud {
       this.root.innerHTML = [
         '<span class="stealth-noise"><b data-role="noise-label">SESSİZ</b><i><b data-role="noise-fill"></b></i></span>',
         '<span class="stealth-zone hidden" data-role="zone"><b data-role="zone-label">SATIŞ ALANI</b><i><b data-role="zone-fill"></b></i></span>',
+        '<span class="stealth-facility hidden" data-role="facility"><b data-role="facility-label">TESİS · NORMAL</b></span>',
       ].join("");
       document.body.appendChild(this.root);
     }
@@ -60,6 +66,8 @@ export class StealthSignalsHud {
     this.noiseFill = this.root.querySelector<HTMLElement>('[data-role="noise-fill"]')!;
     this.zoneChip = this.root.querySelector<HTMLElement>('[data-role="zone"]')!;
     this.zoneFill = this.root.querySelector<HTMLElement>('[data-role="zone-fill"]')!;
+    this.facilityChip = this.root.querySelector<HTMLElement>('[data-role="facility"]')!;
+    this.facilityLabel = this.root.querySelector<HTMLElement>('[data-role="facility-label"]')!;
   }
 
   update(dt: number, noise: NoiseSample, zone: ZoneSnapshot, active: boolean): void {
@@ -68,7 +76,8 @@ export class StealthSignalsHud {
     this.clock = REFRESH_SECONDS;
 
     const showZone = zone.zone !== "PUBLIC" || zone.suspicion > 0.01;
-    const visible = active && (noise.loudness > NOISE_AUDIBLE || showZone);
+    const showFacility = this.publishedFacility !== "" && this.publishedFacility !== "CALM";
+    const visible = active && (noise.loudness > NOISE_AUDIBLE || showZone || showFacility);
     if (visible !== this.lastVisible) {
       this.lastVisible = visible;
       this.root.classList.toggle("hidden", !visible);
@@ -97,6 +106,16 @@ export class StealthSignalsHud {
       this.lastSuspicionStep = step;
       this.zoneFill.style.width = `${(step / SUSPICION_STEPS) * 100}%`;
     }
+  }
+
+  /** Facility state shares this pill instead of adding another meter. */
+  setFacility(state: FacilityState, active: boolean): void {
+    const key = active ? state : "";
+    if (key === this.publishedFacility) return;
+    this.publishedFacility = key;
+    this.facilityChip.classList.toggle("hidden", !key);
+    this.root.dataset.facility = key ? state.toLowerCase() : "";
+    if (key) this.facilityLabel.textContent = facilityStateLabel(state);
   }
 
   setHidden(hidden: boolean): void {

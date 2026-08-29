@@ -8,6 +8,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { coverProtection, COVER_MAX_DETECTION_REDUCTION, isInCover } from "./cover";
+import { getFacilityState, reportIncident } from "./facility-security";
 import { isCrouched } from "./input";
 import type { AwarenessSnapshot } from "./npc";
 
@@ -66,7 +67,11 @@ export class SecurityCameraSystem {
     // surface is actually between the lens and the player.
     const protection = coverProtection(this.cameraMesh.position);
     const coverScale = 1 - protection * COVER_MAX_DETECTION_REDUCTION;
-    const detectionScale = (route === "main" ? 1.12 : route === "side" ? 0.72 : 1) * stanceScale * coverScale;
+    // A searching facility watches its cameras harder, but jamming and the
+    // permanent bypass are untouched and still defeat them outright.
+    const facility = getFacilityState();
+    const facilityScale = facility === "HIGH_ALERT" ? 1.3 : facility === "SEARCH" ? 1.15 : 1;
+    const detectionScale = (route === "main" ? 1.12 : route === "side" ? 0.72 : 1) * stanceScale * coverScale * facilityScale;
     const decayScale = (route === "main" ? 0.9 : route === "side" ? 1.18 : 1) * (1 + protection * 0.18);
     const origin = this.cameraMesh.position.add(new Vector3(0, 0.02, 0));
     const playerEye = playerPosition.add(new Vector3(0, isCrouched() ? 0.3 : covered ? 0.44 : 0.55, 0));
@@ -90,6 +95,7 @@ export class SecurityCameraSystem {
 
     if (this.awareness >= 0.98 && !this.alertedCycle) {
       this.alertedCycle = true;
+      reportIncident("camera-alert", playerPosition.x, playerPosition.y, playerPosition.z);
       this.onAlert();
     }
     if (this.awareness < 0.35) this.alertedCycle = false;

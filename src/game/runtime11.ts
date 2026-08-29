@@ -18,16 +18,33 @@ import {
 import { GameAudio } from "./audio";
 import { resolveThirdPersonCameraCollision } from "./camera-collision";
 import { PlayerCharacter } from "./character";
-import { type CoverState, getCoverState, releaseCover, setCoverPaused } from "./cover";
-import { doorPromptLabel, resetDoors, showDoorStatus, tryUseDoor, updateDoors } from "./doors";
-import { MobileInput, isJumpQueued, isRunHeld } from "./input";
+import { hasStaffCredential } from "./access-state";
+import { type CoverState, getCoverState, isInCover, releaseCover, setCoverPaused } from "./cover";
+import { closeSecurityDoors, doorPromptLabel, resetDoors, showDoorStatus, tryUseDoor, updateDoors } from "./doors";
+import {
+  type FacilityState,
+  readSearchAnchor,
+  relaxFacilityHeat,
+  reportIncident,
+  resetFacilitySecurity,
+  updateFacilitySecurity,
+} from "./facility-security";
+import {
+  type FieldFocusTarget,
+  activateFieldFocus,
+  isFieldFocusActive,
+  resetFieldFocus,
+  setFieldFocusQuality,
+  updateFieldFocus,
+} from "./field-focus";
+import { MobileInput, isCrouched, isJumpQueued, isRunHeld } from "./input";
 import { MissionDirector } from "./mission";
 import { DOOR_NOISE_LOUDNESS, reportEnvironmentNoise, reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
 import { NpcSystem, type AwarenessSnapshot } from "./npc";
 import { SecurityCameraSystem } from "./security";
 import { StealthSignalsHud } from "./stealth-signals";
 import { VisualPolish } from "./visuals";
-import { resetZonePresence, updateZonePresence } from "./zones";
+import { type ZoneId, relaxZoneSuspicion, resetZonePresence, updateZonePresence } from "./zones";
 import {
   type GraphicsPreferences,
   type ResolvedGraphicsProfile,
@@ -49,6 +66,23 @@ const COVER_CAMERA_PULL_IN = 0.42;
 const COVER_CAMERA_SMOOTHING = 5.5;
 const COVER_CAMERA_SMOOTHING_REDUCED = 3;
 const REDUCED_MOTION_CAMERA_SCALE = 0.4;
+
+/** COVER STORY eligibility. Every one of these must hold. */
+const SOCIAL_MAX_NOISE = 0.5;
+const SOCIAL_COOLDOWN = 22;
+/** Bounded relief, so a cover story is an opportunity and not invisibility. */
+const SOCIAL_ZONE_RELIEF = 0.28;
+const SOCIAL_FACILITY_RELIEF = 0.12;
+const SOCIAL_LABEL = "PERSONEL KARTINI GÖSTER";
+
+/** Doors are swung shut once per escalation, not continuously. */
+const SECURITY_DOOR_STATES: readonly FacilityState[] = ["SEARCH", "HIGH_ALERT"];
+
+/** Zone pressure only trickles into facility heat, never drives it. */
+const ZONE_PRESSURE_INCIDENT = 0.6;
+const ZONE_PRESSURE_INCIDENT_INTERVAL = 6;
+/** How far FIELD FOCUS looks for known doors and opportunities. */
+const FOCUS_RADIUS = 15;
 
 type GameMetadata = {
   intelId?: string;
@@ -87,6 +121,12 @@ export class GameRuntime {
   private shoulderBlend = 1;
   private coverCameraBlend = 0;
   private interactionLabel = "";
+  private socialCooldown = 0;
+  private lastSecurityState: FacilityState = "CALM";
+  private readonly focusTargets: FieldFocusTarget[] = [];
+  private readonly anchorScratch = Vector3.Zero();
+  private zoneIncidentTimer = 0;
+  private focusLabel = "";
   private readonly coverMoveScratch = Vector3.Zero();
   private readonly cameraDistance = 4.15;
   private readonly shoulderOffset = 0.42;
@@ -146,6 +186,8 @@ export class GameRuntime {
     resetPlayerNoise();
     resetZonePresence();
     resetDoors();
+    resetFacilitySecurity();
+    resetFieldFocus();
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
@@ -173,6 +215,8 @@ export class GameRuntime {
     setCoverPaused(paused);
     if (paused) {
       resetPlayerNoise();
+      resetFieldFocus();
+      this.focusLabel = "";
       this.stealthSignals.setHidden(true);
       this.interactionLabel = "";
       this.interactionEl.classList.add("hidden");
@@ -225,6 +269,7 @@ export class GameRuntime {
     }
 
     this.visualPolish.applyProfile(profile);
+    setFieldFocusQuality(profile.tier, preferences.reducedMotion);
     this.npcSystem.applyQuality(profile.tier);
     this.securitySystem.applyQuality(profile.tier);
     document.body.classList.toggle("reduced-motion", preferences.reducedMotion);
@@ -275,22 +320,56 @@ export class GameRuntime {
     this.stealthSignals.update(dt, samplePlayerNoise(), zone, awarenessActive);
 
     updateDoors(dt);
+    updateFieldFocus(dt);
+    this.socialCooldown = Math.max(0, this.socialCooldown - dt);
+
+    // Sustained zone pressure is only ever a weak contributor.
+    if (awarenessActive && zone.suspicion >= ZONE_PRESSURE_INCIDENT) {
+      this.zoneIncidentTimer -= dt;
+      if (this.zoneIncidentTimer <= 0) {
+        this.zoneIncidentTimer = ZONE_PRESSURE_INCIDENT_INTERVAL;
+        reportIncident("zone");
+      }
+    }
+
+    const facility = updateFacilitySecurity(dt, awarenessActive);
+    if (facility.state !== this.lastSecurityState) {
+      const escalated = SECURITY_DOOR_STATES.includes(facility.state)
+        && !SECURITY_DOOR_STATES.includes(this.lastSecurityState);
+      this.lastSecurityState = facility.state;
+      // Escalation swings the controlled doors shut once. Access requirements
+      // are untouched, so anything the player may open stays openable.
+      if (escalated) closeSecurityDoors();
+    }
 
     const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const cameraAwareness = this.securitySystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const strongestAwareness = cameraAwareness.meter > npcAwareness.meter ? cameraAwareness : npcAwareness;
     this.updateAwarenessHud(strongestAwareness, awarenessActive);
+    this.stealthSignals.setFacility(facility.state, awarenessActive);
 
+    // Before infiltration the control is recon, exactly as before. During
+    // infiltration the same control becomes FIELD FOCUS.
     if (frame.observePressed) {
-      this.observation = !this.observation;
-      this.analysisSeconds = 0;
+      if (awarenessActive) this.triggerFieldFocus();
+      else {
+        this.observation = !this.observation;
+        this.analysisSeconds = 0;
+        this.observedMesh = null;
+        this.observationEl.classList.add("hidden");
+        document.body.classList.toggle("recon-active", this.observation);
+      }
+    }
+    if (awarenessActive && this.observation) {
+      this.observation = false;
       this.observedMesh = null;
       this.observationEl.classList.add("hidden");
-      document.body.classList.toggle("recon-active", this.observation);
+      document.body.classList.remove("recon-active");
     }
 
     if (this.observation) this.updateObservation(dt);
-    else this.updateInteraction(frame.interactPressed);
+    else this.updateInteraction(frame.interactPressed, awarenessActive, zone.zone, facility.state);
+    this.updateFieldFocusReadout(awarenessActive);
     this.updateHud();
   }
 
@@ -392,13 +471,20 @@ export class GameRuntime {
     }
   }
 
-  private updateInteraction(interactPressed: boolean): void {
+  private updateInteraction(
+    interactPressed: boolean,
+    awarenessActive: boolean,
+    zone: ZoneId,
+    facilityState: FacilityState,
+  ): void {
     const origin = this.player.cameraTarget.getAbsolutePosition();
     const ray = new Ray(origin, this.camera.getForwardRay().direction, 4.2);
     const hit = this.scene.pickWithRay(ray, (mesh) => Boolean((mesh.metadata as GameMetadata | null)?.interaction));
     const mesh = hit?.hit && hit.pickedMesh instanceof Mesh ? hit.pickedMesh : null;
     if (!mesh) {
-      this.setInteractionLabel("");
+      // Nothing physical is targeted, so the contextual social opportunity may
+      // claim the prompt. World interactables always outrank it.
+      this.updateSocialPrompt(interactPressed, awarenessActive, zone, facilityState);
       return;
     }
     const meta = mesh.metadata as GameMetadata;
@@ -447,6 +533,126 @@ export class GameRuntime {
         this.securitySystem.bypass();
       }
     }
+  }
+
+  /**
+   * COVER STORY. Every condition must hold: an infiltration in progress, a
+   * STAFF area (never RESTRICTED), a valid credential, a calm facility, a
+   * relaxed stance, quiet movement, an off-cooldown check, and a nearby guard
+   * who can see the player and is unsettled but not committed.
+   */
+  private updateSocialPrompt(
+    interactPressed: boolean,
+    awarenessActive: boolean,
+    zone: ZoneId,
+    facilityState: FacilityState,
+  ): void {
+    if (!awarenessActive || zone !== "STAFF" || facilityState === "HIGH_ALERT") {
+      this.setInteractionLabel("");
+      return;
+    }
+    if (this.socialCooldown > 0 || !hasStaffCredential()) {
+      this.setInteractionLabel("");
+      return;
+    }
+    if (isCrouched() || isInCover() || isRunHeld()) {
+      this.setInteractionLabel("");
+      return;
+    }
+    if (samplePlayerNoise().loudness > SOCIAL_MAX_NOISE) {
+      this.setInteractionLabel("");
+      return;
+    }
+
+    const target = this.npcSystem.socialCheckTarget(this.player.position);
+    if (!target) {
+      this.setInteractionLabel("");
+      return;
+    }
+
+    this.setInteractionLabel(SOCIAL_LABEL);
+    if (!interactPressed) return;
+
+    if (!this.npcSystem.resolveSocialCheck(target.index)) return;
+    relaxZoneSuspicion(SOCIAL_ZONE_RELIEF);
+    relaxFacilityHeat(SOCIAL_FACILITY_RELIEF);
+    this.socialCooldown = SOCIAL_COOLDOWN;
+    this.setInteractionLabel("");
+    if (typeof navigator.vibrate === "function") navigator.vibrate([10, 30, 10]);
+  }
+
+  /**
+   * Collects only information the player has already earned, then starts a
+   * focus window. NPCs are never candidates, so this cannot become a wallhack.
+   */
+  private triggerFieldFocus(): void {
+    const state = this.mission.snapshot();
+    const targets = this.focusTargets;
+    targets.length = 0;
+    const player = this.player.position;
+
+    const objectiveName = state.state === "EXTRACT"
+      ? "extraction"
+      : state.operationStep === "ACCESS"
+        ? "operation-access-terminal"
+        : state.operationStep === "MANIFEST"
+          ? "operation-manifest-terminal"
+          : "dispatch-record";
+    this.pushFocusTarget(objectiveName, "objective", Infinity);
+
+    // Known physical access points near the player.
+    for (const mesh of this.scene.meshes) {
+      if (targets.length >= 8) break;
+      const meta = mesh.metadata as GameMetadata | null;
+      if (meta?.interaction !== "door" || !(mesh instanceof Mesh)) continue;
+      this.pushFocusMesh(mesh, "access", FOCUS_RADIUS, player);
+    }
+
+    // Intel the player actually discovered, plus the CCTV opportunity.
+    for (const mesh of this.scene.meshes) {
+      if (targets.length >= 8) break;
+      const meta = mesh.metadata as GameMetadata | null;
+      if (!meta?.intelId || !this.mission.hasIntel(meta.intelId)) continue;
+      if (!(mesh instanceof Mesh)) continue;
+      this.pushFocusMesh(mesh, "intel", FOCUS_RADIUS, player);
+    }
+    if (this.mission.hasIntel("market_camera") && !this.mission.hasOpportunity("camera_bypass")) {
+      this.pushFocusMesh(this.securitySystem.bypassPanel, "intel", Infinity, player);
+    }
+
+    // Abstract last-known incident context, never the player's live position.
+    if (readSearchAnchor(this.anchorScratch)) {
+      targets.push({ x: this.anchorScratch.x, y: this.anchorScratch.y, z: this.anchorScratch.z, kind: "incident" });
+    }
+
+    if (!activateFieldFocus(this.scene, targets)) return;
+    if (typeof navigator.vibrate === "function") navigator.vibrate(8);
+  }
+
+  private pushFocusTarget(meshName: string, kind: FieldFocusTarget["kind"], radius: number): void {
+    const mesh = this.scene.getMeshByName(meshName);
+    if (mesh instanceof Mesh) this.pushFocusMesh(mesh, kind, radius, this.player.position);
+  }
+
+  private pushFocusMesh(mesh: Mesh, kind: FieldFocusTarget["kind"], radius: number, player: Vector3): void {
+    if (!mesh.isEnabled()) return;
+    const position = mesh.getAbsolutePosition();
+    if (radius !== Infinity && Vector3.Distance(position, player) > radius) return;
+    this.focusTargets.push({ x: position.x, y: position.y, z: position.z, kind });
+  }
+
+  /** Reuses the recon readout line; writes only when the text changes. */
+  private updateFieldFocusReadout(awarenessActive: boolean): void {
+    if (!awarenessActive) return;
+    const label = isFieldFocusActive() ? "SAHA ODAĞI" : "";
+    if (label === this.focusLabel) return;
+    this.focusLabel = label;
+    if (!label) {
+      this.observationEl.classList.add("hidden");
+      return;
+    }
+    this.observationEl.textContent = label;
+    this.observationEl.classList.remove("hidden");
   }
 
   /** Writes the prompt only when the text actually changes. */

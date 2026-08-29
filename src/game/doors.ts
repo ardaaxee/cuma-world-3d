@@ -30,6 +30,8 @@ export interface DoorDefinition {
   readonly slideSign: 1 | -1;
   /** Set only where an automatic closer makes sense. */
   readonly autoCloseSeconds?: number;
+  /** Whether an escalating facility may swing this door shut on its own. */
+  readonly securityCloses?: boolean;
 }
 
 export interface DoorUseResult {
@@ -245,6 +247,24 @@ export function updateDoors(dt: number): void {
 
     active.delete(door);
   }
+}
+
+/**
+ * Facility escalation shuts the controlled doors it is allowed to touch. This
+ * is presentation and pressure only: access requirements are untouched, so any
+ * door the player is entitled to open stays openable, and doors that are the
+ * alternate routes' way in are never auto-closed.
+ */
+export function closeSecurityDoors(): number {
+  let closed = 0;
+  for (const door of doors.values()) {
+    if (!door.def.securityCloses || door.target <= 0) continue;
+    door.target = 0;
+    door.autoCloseTimer = 0;
+    active.add(door);
+    closed += 1;
+  }
+  return closed;
 }
 
 /**
