@@ -36,7 +36,14 @@ Rules:
 - `src/game/character-animation.ts`: canonical animation-state contract and clip-name resolver
 - `src/game/character-blender.ts`: animation-group crossfade
 - `src/game/character-face.ts`: optional facial-life (blink/gaze) layer
-- `src/game/mission.ts`: mission rules/state/save
+- `src/game/mission.ts`: the one MissionDirector — mission rules, stage graph state, save
+- `src/game/mission-graph.ts`: typed stage/resolution/objective/opportunity data
+- `src/game/mission-save.ts`: the one SAVE_KEY, storage and reset (dependency-free)
+- `src/game/mission-result.ts`: typed MissionResult and its completion event
+- `src/game/mission-objects.ts`: Milestone 05 world interactables
+- `src/game/delivery-cart.ts`: authored cart movement
+- `src/game/npc-routines.ts`: authored NPC waypoint routines and per-run variant selection
+- `src/game/run-variation.ts`: deterministic runSeed mixing
 - `src/game/npc.ts`: NPC awareness/patrol/hearing/investigation/security communication
 - `src/game/security.ts`: CCTV gameplay
 - `src/game/cover.ts`: directional tactical cover
@@ -552,3 +559,242 @@ Nothing below was tested on hardware. CI proves the build, not the look.
 - that the procedural fallback still boots correctly when the GLB is absent
 - blink cadence legibility at third-person distance, if a future asset has
   morph targets
+
+## Milestone 05 — Mission Graph + Opportunities + NPC Routines + Replay Depth (verified)
+
+Gameplay commit `ecec0a8`. The operation is now a typed graph with real
+alternate solutions instead of one hard-coded sequence. No second
+MissionDirector, NPC state machine, door, zone or facility controller.
+
+### Mission graph API (`src/game/mission-graph.ts`)
+
+Dependency-free typed data, deliberately game-specific rather than a generic
+workflow engine.
+
+- `MissionStageId` — `ACCESS`, `MANIFEST`, `VERIFY` (`STAGE_ORDER`)
+- `MissionResolutionId` — `access_terminal`, `manifest_records`,
+  `manifest_ledger`, `verify_counter`, `verify_monitoring`
+- `OptionalObjectiveId` — `secondary_records`, `shift_pattern`
+- `OpportunityId` — `camera_bypass`, `staff_routine_window`, `delivery_cart`
+- helpers: `getStage`, `getResolution`, `resolutionsForStage`,
+  `stepForResolvedStages`, `firstBlockingStage`, `stagesImpliedByStep`,
+  `legacyResolutionFor`, plus `is*Id` guards
+
+Director surface: `canResolve(id)`, `resolveStage(id)`, `isStageResolved(stage)`,
+`resolutionFor(stage)`, `canCompleteObjective(id)`, `completeOptionalObjective(id)`,
+`hasObjective(id)`, `canUseOpportunity(id)`, `useOpportunity(id)`, `getRunSeed()`.
+
+**Double completion is structurally impossible.** Presence in the resolution
+map *is* stage completion, so `canResolve()` rejects any resolution whose stage
+is already resolved — the alternate, the same resolution replayed, and the
+legacy `completeObjective()` path all return false and the operation step does
+not advance. `document.body.dataset.operationStep` is still derived from
+resolved stages, so the credential and door systems are untouched.
+
+### MANIFEST A/B and VERIFY A/B
+
+| Stage | A (unchanged) | B (new) | B requires |
+|---|---|---|---|
+| MANIFEST | back-office records terminal | loading bay stock ledger | `market_worker_route` |
+| VERIFY | delivery-counter physical record | monitoring-room cross-check | `market_camera` |
+
+B for MANIFEST sits in the STAFF loading zone (ledger mounted on the bay post at
+`11.70, 1.35, 12.85`); B for VERIFY sits in the RESTRICTED monitoring room
+(`-0.78, 1.5, 20.5`). Neither is a hack or a security bypass — both are
+read-only records. ACCESS keeps its single credential resolution.
+
+### Optional objectives — exactly two
+
+`SECONDARY_RECORDS` (records room, `-6.82, 1.34, 21.4`, RESTRICTED exposure) and
+`SHIFT_PATTERN` (staff corridor west wall, `-7.62, 1.62, 15.4`). Both are
+physical world interactions, persisted, scored and shown in debrief. **Neither
+blocks extraction** — a run completes at 0/2. `SHIFT_PATTERN` unlocks
+`staff_routine_window`.
+
+### Opportunity registry
+
+| Opportunity | Unlocked by | Effect |
+|---|---|---|
+| `camera_bypass` | `market_camera` | unchanged from Milestone 04 |
+| `staff_routine_window` | `SHIFT_PATTERN` | 20 s worker alternate routine |
+| `delivery_cart` | `market_worker_route` | slides cart to next authored stop |
+
+All three are one-shot per run, typed, scored and reported in debrief.
+
+**STAFF ROUTINE WINDOW** sends one worker onto an authored loading-bay task via
+`NpcSystem.openStaffRoutineWindow()`. It opens a corridor gap and nothing else:
+it does not clear facility heat, does not touch security units, and changes
+nothing about what anyone knows. It claims the same contextual prompt slot as
+COVER STORY, taking priority only while unused.
+
+**DELIVERY CART** moves between three authored stops down the service alley
+(`x 9.6`, `z 12.4 / 15.9 / 18.9`). No dragging, no physics engine. It is
+collidable and tops out at ~1.33 m — above the cover system's 0.70 m contact
+probe, below its 1.45 m head probe — so directional SİPER reads it as
+crate-height cover that rewards crouching. Movement emits a
+`CART_NOISE_LOUDNESS = 0.34` impulse through the existing noise model.
+
+Traversal was flood-filled over the real collision boxes at every stop: every
+room, doorway and new interactable stays reachable, and the cart leaves ~1.5 m
+clear on the wall side and ~2.5 m on the open side, so no stop can seal a route.
+
+### NPC routine API (`src/game/npc-routines.ts`)
+
+`RoutineWaypoint { x, z, dwell?, sweep? }` → `RoutineVariant { id, waypoints }`
+→ `RoutineSet { variants, alternate? }`. Positions are plain coordinates so the
+data module stays dependency-free and allocates nothing at import; `npc.ts`
+converts each routine to Vector3 once when an agent adopts it.
+
+- GÜVENLİK 01: `s1-floor-west`, `s1-counter-watch`
+- GÜVENLİK 02: `s2-floor-east`, `s2-corridor-mouth`
+- MARKET ÇALIŞANI: `worker-floor`, `worker-shelves`, alternate `worker-loading-run`
+
+`selectVariant`, `selectDwellScale` and `selectPhaseOffset` are all derived from
+the run seed, once per agent per run. There is no per-frame random anywhere and
+no per-NPC timer or animation frame.
+
+NPC movement does not test collision, so every routine leg was checked against
+the walls — the worker's loading run originally cut through the market's right
+wall and now threads the delivery opening (`x 7.25`, clear between `z 8.9` and
+`11.5`).
+
+### runSeed and replay variation
+
+Generated by `createRunSeed()` on first run, persisted in the save, exposed via
+`MissionDirector.getRunSeed()` and passed into `NpcSystem`. Deterministic mixing
+lives in `run-variation.ts` (`seededUnit` / `seededIndex` / `seededRange`).
+
+- resuming the same save reproduces the same variant, dwell scale and sweep phase
+- replay clears the save, so the next run seeds afresh and may differ
+- different agents get different dwell scales, so units no longer pause in lockstep
+
+### SEARCH/HIGH_ALERT override and recovery
+
+Milestone 04 behaviour is unchanged: investigation, coordinated search and the
+last-known anchor still override routines, and NPCs are never routed from the
+player's live position. What is new is the recovery — an interrupted agent
+rejoins its authored routine at the **nearest** waypoint rather than a stale
+index, and `setEnabled(false)` drops any active alternate window so a re-enabled
+LOW-tier agent never resumes mid-window. Verified by simulation.
+
+### Typed MissionResult and debrief data flow
+
+`MissionDirector` → `publishMissionResult()` → `cuma-mission-result` window
+event → `MissionDebrief`. The result carries rank, score, route, intel,
+per-stage resolutions with labels, completed objectives, objective total,
+opportunities used, alerts, run seed and a replay hint.
+
+**The regex path is gone.** `debrief.ts` no longer creates a `MutationObserver`
+and no longer runs `text.match(...)` over HUD prose; CI now fails if either
+returns. A save restored straight into COMPLETE republishes its result, so an
+already-finished save still opens a valid debrief.
+
+### Boot dependency chain
+
+`SAVE_KEY` and `resetMissionProgress` were **moved** — not duplicated — into the
+dependency-free `mission-save.ts`, and the `operation-depth` side-effect import
+moved from `mission.ts` to `runtime11.ts`. Debrief no longer reaches
+`mission.ts`, which breaks the documented chain:
+
+`debrief → mission → operation-depth → world-expansion → doors`
+
+Bootstrap **42,949 → 25,591 bytes**, a 40% reduction. Verified by inspecting the
+built chunk: no doors, operation-depth, world-expansion, zones, MissionDirector
+or Babylon remain in it — only the dependency-free save/graph/result modules
+debrief actually needs. One storage key, one reset function, no bundler refactor.
+
+### Scoring
+
+GHOST / SHADOW / OPERATIVE and 0..100 preserved. Named weights: `SCORE_BASE` 58,
+per-stage score 4, optional objective 7 each, opportunity 6 each,
+`SCORE_OPTIONAL_INTEL` 6, `SCORE_ROUTE_CHOSEN` 6, `SCORE_ALERT_PENALTY` 18.
+An alternate resolution scores exactly what its sibling scores — verified.
+
+### Save migration
+
+Same storage key. `runSeed`, `resolutions` and `objectives` are optional fields.
+
+- old saves carrying only `operationStep` backfill the stages that step implies,
+  so a pre-Milestone-05 INFILTRATE run stays completable
+- old COMPLETE saves still publish a usable result
+- corrupt JSON, unknown intel/objective/opportunity ids, and a resolution stored
+  under the wrong stage are all rejected without crashing
+- replay clears progress and reseeds
+- facility heat, focus and social cooldowns remain runtime-only
+
+### Verification
+
+`npm run build` clean. 117 mission-graph contract checks and the 53 character
+runtime checks both green; both run in CI. Local bundle (model not packaged):
+bootstrap 25,591, largest chunk 809,372, total JS 7,047,374 — all budgets green.
+
+Beyond the unit checks, three things were verified numerically rather than
+assumed:
+
+- **Traversal.** Flood-filled the real collision boxes with the cart at each of
+  its three stops. Every room, doorway and new interactable stays reachable, and
+  no stop closes a route.
+- **Routine legs.** NPC movement does not test collision, so every leg of every
+  authored loop was sampled against the walls. The worker's loading run
+  originally cut through the market's right wall; it now threads the delivery
+  opening.
+- **Routine override/recovery.** Simulated the patrol state machine: search
+  overrides the routine, recovery rejoins at the nearest waypoint, the alternate
+  window expires correctly even while interrupted, and agents with different
+  dwell scales drift out of lockstep.
+
+### CI verification
+
+Run `33271072252` (#134), `workflow_dispatch` on
+`ecec0a8d65cacc6b461bdf469ecc070eff00185c`, **completed SUCCESS**, all 15 steps
+green, 3m08s.
+
+Verified from the job log and artifact list, not the step-status API:
+
+- `MISSION_GRAPH_OK 117 checks passed`
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `CHARACTER_GLB_OK` with the CHARACTER REPORT intact
+- `BUILD SUCCESSFUL in 1m 57s`
+- debug APK sha256 `e25afb77b8cdb95b9f9546fee467eaf494ca88541ecbb5efabe51134c92b678e`
+- Play AAB sha256 `f2fda40d52a00b8cd6ea2af9857c524dfcb67a58c8d64f330f681d413a3dbf6a`
+- packaged model sha256 `7b5ff9d323b3bea72eddc2faac3ea3ec8f40232acfa2318692ee30efbc202508`
+- artifact `CUMA-WORLD-Android-Play-Build` id `9720150414`, 23,731,156 bytes,
+  digest `sha256:7e415cf6f7d5a3b3c99754751e22caf4913e60fe9b0d3940808a9df908fbc92f`
+- versionCode 1100, versionName 11.0.0-pre.1, targetSdk 36,
+  orientation sensorLandscape, Play upload unsigned
+
+CI-to-CI against the character run `33267441725` (#133), both with the model
+packaged:
+
+| | #133 | #134 | Delta |
+|---|---|---|---|
+| `bootstrap_js_bytes` | 42,924 | **25,566** | **−17,358** |
+| `largest_js_chunk_bytes` | 812,398 | 812,392 | −6 |
+| `total_js_bytes` | 7,417,096 | 7,432,062 | +14,966 |
+| `total_web_bytes` | 14,945,750 | 14,960,738 | +14,988 |
+| Artifact bytes | 23,708,575 | 23,731,156 | +22,581 |
+
+The boot chunk fell 40% because the mission/world chain left it. All budgets
+green (102400 / 921600 / 8500000).
+
+CI proves the build. It proves nothing about how any of this feels on a phone.
+
+### Requires real-device testing from Milestone 05
+
+- whether the two MANIFEST routes feel like a genuine choice or one is
+  obviously better once the worker-route intel is in hand
+- whether the monitoring-room VERIFY is worth the RESTRICTED exposure
+- whether the STAFF ROUTINE WINDOW's 20 s gap is long enough to be useful and
+  short enough to stay a decision
+- whether the delivery cart reads as usable cover from the third-person camera,
+  and whether pushing it near a guard is a reasonable risk
+- whether the cart's ~1.33 m height genuinely rewards crouching in play
+- whether routine variation is noticeable across two fresh replays, or too
+  subtle to register
+- guard dwell/sweep legibility at LOW, where sense interval is coarser
+- whether recovery from SEARCH back to routine reads as natural or abrupt
+- interaction-prompt priority in the corridor, where the shift board, a door
+  and the routine window can all be close together
+- debrief readability on a phone now that the note block carries several lines
+- an old pre-Milestone-05 save resuming mid-INFILTRATE on a real device
+- pause/background/resume during an active routine window or a cart slide
