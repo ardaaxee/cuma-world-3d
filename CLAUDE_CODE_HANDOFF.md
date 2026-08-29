@@ -347,3 +347,208 @@ and score are untouched.
 - frame cost of the added back-of-house geometry on LOW/MEDIUM
 - pause/background/resume with a door mid-animation
 - an old save from before Milestone 03 loading straight into INFILTRATE
+
+## Hero Character Realism Pipeline (verified)
+
+Commit `443907a2bdbdab395695e642d2b73f0ca942c395`. Mission Graph Milestone 05
+was NOT touched and remains paused.
+
+This milestone built the runtime and CI contracts a realistic hero needs. It did
+not produce the hero. See "Asset-authoring dependency" below — that gap is real
+and is not hidden anywhere in this document.
+
+### Character asset audit — measured, not assumed
+
+The source archive `CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip` contains only
+`assets/characters/README.md`, no GLB. Every CI run therefore falls through to
+the pinned CC0 fallback in `ci/install_high_character.py`.
+
+Audited with the upgraded validator:
+
+| | |
+|---|---|
+| Source | `kunalkushwaha/vsim@3f97faf…/packages/assets/library/suited.glb` |
+| License | CC0 / public domain, MakeHuman / MPFB 2 — no real person's likeness |
+| sha256 | `7b5ff9d323b3bea72eddc2faac3ea3ec8f40232acfa2318692ee30efbc202508` |
+| GLB bytes | 6,675,064 |
+| Generator | Khronos glTF Blender I/O v4.5.51 |
+| Meshes / primitives | 3 / 3 |
+| Vertices / triangles | 19,166 / 35,492 |
+| Skins / joints | 1 / 53 |
+| Materials | 3 |
+| Images | 5 × 1024×1024 PNG, 5,296,760 B (79% of the file) |
+| Animation clips | 4 — `idle`, `run`, `walk`, `wave` (636 channels) |
+| Morph targets | 0 |
+
+No crouch, jump, fall, landing or cover clips. No facial morph targets. No
+finger bones. It is a safe provenance baseline, not a photoreal hero, and this
+handoff does not describe it as one.
+
+### Runtime
+
+`PlayerCharacter` was extended in place. No second player controller, no second
+animation system, and the 1.72 m × 0.34 m capsule remains authoritative.
+
+- `character-animation.ts` — canonical states (`idle`, `walk`, `run`,
+  `crouch_idle`, `crouch_walk`, `jump_start`, `airborne`, `landing`,
+  `cover_idle`, `cover_locomotion`) with an alias table for real DCC export
+  names. Resolution is most-specific-first with single-claim, so `crouch_walk`
+  is never mistaken for `walk`. Resolved **once** at GLB load into a `Map`;
+  nothing matches names per frame.
+- Fallback chains all terminate at `idle`, so a missing optional clip degrades
+  rather than failing. Only `idle`/`walk`/`run` are hard requirements.
+- `character-blender.ts` — crossfade over 0.18 s using AnimationGroup weights.
+  A clip starts only when the state genuinely changes; states that share a clip
+  through the fallback chain are a speed-ratio change, not a restart; and
+  reversing a blend resumes the outgoing clip instead of restarting it. At most
+  two groups are ever live.
+- `character-face.ts` — optional facial life: blink plus a slow two-axis gaze
+  drift, capped at 0.22 influence. Deterministic cadence table, no RNG, no
+  dialogue, no lip-sync. Reduced Motion parks the gaze and slows blinking.
+  **Silently inactive when the asset has no morph targets**, which is the
+  current case.
+- Animation is strictly downstream of physics. `resolveState()` reads grounded
+  state, timers, speed, crouch, cover and sprint, and writes nothing back — the
+  jump arc (5.35 / −14.5), gravity, collider dimensions and crouch speed are
+  unchanged and unreachable from animation.
+- Cover state reaches the character as an optional `update()` argument from
+  `runtime11.ts`, so `character.ts` gained no dependency on `cover.ts` and the
+  boot chain was not widened.
+- Imported PBR materials get `environmentIntensity = 0.72` to match the scene's
+  own materials. Nothing else about an authored material is touched.
+
+### Import failure handling
+
+The procedural fallback is disabled only after the import has **fully**
+succeeded — meshes present and required states resolved. Any failure disposes
+every mesh and animation group the loader created (not just those already
+adopted), clears the blender and facial layer, and re-enables the procedural
+character. The glTF loader's auto-played first group is stopped on import, so
+no unmanaged clip can be left running.
+
+### CI validation
+
+`ci/validate_android_character_glb.py` was rewritten. It parses both GLB chunks
+and reads PNG/JPEG headers directly (no image library) to print a
+`CHARACTER REPORT` covering file/BIN bytes, generator, nodes, meshes,
+primitives, vertices, indices, triangles, skins, joints, materials, textures,
+per-image dimensions and bytes, animation names and channel count, morph
+targets, and the resolved animation and facial contracts.
+
+Android budgets, set from the measured baseline at ~2–3× headroom rather than
+guessed:
+
+| Budget | Ceiling | Baseline |
+|---|---|---|
+| GLB bytes | 24 MB | 6.7 MB |
+| Triangles | 120,000 | 35,492 |
+| Vertices | 90,000 | 19,166 |
+| Meshes / primitives | 16 / 32 | 3 / 3 |
+| Materials | 12 | 3 |
+| Images | 24 | 5 |
+| Joints | 120 | 53 |
+| Texture edge | 2048 error, 1024 warn | 1024 |
+
+8K is forbidden and 4K is rejected outright. Verified by construction against
+synthetic GLBs: missing `run`, no skin, 4K texture, 200k triangles, truncated
+container, bad magic and missing file all fail; a 2K texture warns and passes.
+
+`ci/test_character_runtime.mjs` adds 53 contract checks over the resolver,
+blender and facial layer, compiled with the TypeScript already in
+devDependencies (Vite 8 uses rolldown, so esbuild is not available). It runs in
+the workflow after the bundle measurement. The Python and TypeScript resolvers
+were cross-checked to agree on nine clip-name sets including adversarial
+ordering and degenerate assets.
+
+### Performance and bundle
+
+CI-to-CI, Milestone 04 run `33246717365` versus character run `33267441725`
+(both with the model packaged and `VITE_BUILD_SHA` set):
+
+| | M04 (#132) | Character (#133) | Delta |
+|---|---|---|---|
+| `bootstrap_js_bytes` | 42,924 | 42,924 | **0** |
+| `largest_js_chunk_bytes` | 812,398 | 812,398 | **0** |
+| `total_js_bytes` | 7,411,675 | 7,417,096 | +5,421 |
+| `total_web_bytes` | 14,940,329 | 14,945,750 | +5,421 |
+| Artifact bytes | 23,704,495 | 23,708,575 | +4,080 |
+
+Boot chunk and largest chunk are **byte-identical**: the new modules are
+reachable only from the lazy runtime, so the `debrief → mission →
+operation-depth → world-expansion → doors` startup chain was not widened. All
+budgets green (102400 / 921600 / 8500000).
+
+Locally, without `VITE_BUILD_SHA` and without the model packaged, the boot chunk
+is likewise unchanged at 42,949 bytes and total JS moves 7,028,046 → 7,032,419.
+
+No per-frame allocation was added: animation state selection is numeric, the
+blender holds two references, and the facial layer costs two trig calls a frame
+only when targets exist.
+
+### Packaging
+
+Path is unchanged: `public/assets/characters/cuma_runtime.glb`. Verified
+locally by reproducing the CI step — the GLB reaches
+`dist/assets/characters/cuma_runtime.glb` byte-identical (sha256
+`7b5ff9d3…c202508`). Character binaries are now gitignored; they are installed
+by CI and never committed.
+
+### Save compatibility
+
+No save schema change. Nothing in this milestone is persisted.
+
+### CI verification
+
+Run `33267441725` (#133), `workflow_dispatch` on
+`443907a2bdbdab395695e642d2b73f0ca942c395`, **completed SUCCESS**, all 15 steps
+green, 3m21s.
+
+Verified from the job log and artifact list, not from the step-status API:
+
+- `CHARACTER REPORT` printed in full, matching the local audit exactly
+- `CHARACTER_GLB_OK path=public/assets/characters/cuma_runtime.glb`
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `test -s dist/assets/characters/cuma_runtime.glb` passed
+- `BUILD SUCCESSFUL in 1m 53s`
+- debug APK sha256 `4248070506bbe0e532759cd23cc1ad8817e6b2d87dde59231f487300dd269fb7`
+- Play AAB sha256 `18b7e3c7f82ea59c8006e0346d98b6bcf3627a97798e10092450dca4a1309238`
+- packaged model sha256 `7b5ff9d323b3bea72eddc2faac3ea3ec8f40232acfa2318692ee30efbc202508`
+- model source `pinned-cc0:kunalkushwaha/vsim@3f97faf…/packages/assets/library/suited.glb`
+- artifact `CUMA-WORLD-Android-Play-Build` id `9719107652`, 23,708,575 bytes,
+  zip sha256 `d73189db14bcbb1548283963bf82726fde41f1c27d9f6f4fb55bb9bf97d91f57`
+- versionCode 1100, versionName 11.0.0-pre.1, targetSdk 36,
+  orientation sensorLandscape, cleartextTraffic false, Play upload unsigned
+
+CI proves the build. It proves nothing about how the character looks or
+performs on a real phone.
+
+### Asset-authoring dependency
+
+**An authored hero meeting the art direction does not exist in this
+repository.** Producing one requires sculpting, retopology, texturing, rigging
+and animation work that CI cannot perform — CI can only validate and package
+what it is given.
+
+Until such an asset is committed to the source archive as
+`assets/characters/cuma_high.glb`, CI will keep packaging the CC0 MakeHuman
+fallback and the game will keep looking like that fallback. The runtime is now
+ready to consume a better asset the day one exists, and `docs/CHARACTER_PIPELINE.md`
+is the contract it must meet.
+
+**Asset-authoring dependency remains.**
+
+### Requires real-device testing from the character milestone
+
+Nothing below was tested on hardware. CI proves the build, not the look.
+
+- whether the 0.18 s crossfade reads as smooth or mushy on a real device
+- whether the imported character's scale still visually matches the 1.72 m
+  collider after the material change
+- whether `environmentIntensity = 0.72` improves or flattens the hero under
+  daylight and interior lighting
+- landing-clip timing versus the 0.28 s window at various fall heights
+- frame cost of weighted two-group blending on LOW/MEDIUM
+- Android pause/background/resume mid-crossfade
+- that the procedural fallback still boots correctly when the GLB is absent
+- blink cadence legibility at third-person distance, if a future asset has
+  morph targets
