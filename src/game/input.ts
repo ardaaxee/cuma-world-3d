@@ -31,6 +31,11 @@ export function consumeJumpPressed(): boolean {
   return pressed;
 }
 
+/** Peek at a queued jump without consuming it, so cover can exit first. */
+export function isJumpQueued(): boolean {
+  return jumpQueued;
+}
+
 export class MobileInput {
   private moveX = 0;
   private moveY = 0;

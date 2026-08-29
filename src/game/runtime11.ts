@@ -18,7 +18,8 @@ import {
 import { GameAudio } from "./audio";
 import { resolveThirdPersonCameraCollision } from "./camera-collision";
 import { PlayerCharacter } from "./character";
-import { MobileInput } from "./input";
+import { type CoverState, getCoverState, releaseCover, setCoverPaused } from "./cover";
+import { MobileInput, isJumpQueued, isRunHeld } from "./input";
 import { MissionDirector } from "./mission";
 import { reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
 import { NpcSystem, type AwarenessSnapshot } from "./npc";
@@ -32,6 +33,21 @@ import {
   loadGraphicsPreferences,
   resolveGraphicsProfile,
 } from "./graphics";
+
+/** Movement into the cover surface is damped hard; leaving it stays responsive. */
+const COVER_INTO_SURFACE_DAMPING = 0.15;
+const COVER_AWAY_FROM_SURFACE_DAMPING = 0.85;
+/** Cover movement is deliberate without being a rail. */
+const COVER_MOVE_SCALE = 0.82;
+/** Dead zone that stops the shoulder from flipping while looking along a wall. */
+const SHOULDER_FLIP_DEADZONE = 0.25;
+const SHOULDER_SMOOTHING = 6.5;
+const SHOULDER_SMOOTHING_REDUCED = 3.2;
+/** Small, authored pull-in so cover framing reads without a FOV swing. */
+const COVER_CAMERA_PULL_IN = 0.42;
+const COVER_CAMERA_SMOOTHING = 5.5;
+const COVER_CAMERA_SMOOTHING_REDUCED = 3;
+const REDUCED_MOTION_CAMERA_SCALE = 0.4;
 
 type GameMetadata = {
   intelId?: string;
@@ -65,6 +81,10 @@ export class GameRuntime {
   private paused = false;
   private lastRenderedAt = 0;
   private lookSensitivity = 1;
+  private shoulderSide = 1;
+  private shoulderBlend = 1;
+  private coverCameraBlend = 0;
+  private readonly coverMoveScratch = Vector3.Zero();
   private readonly cameraDistance = 4.15;
   private readonly shoulderOffset = 0.42;
 
@@ -146,6 +166,7 @@ export class GameRuntime {
   setPaused(paused: boolean): void {
     this.paused = paused;
     this.audio.setPaused(paused);
+    setCoverPaused(paused);
     if (paused) {
       resetPlayerNoise();
       this.stealthSignals.setHidden(true);
@@ -216,7 +237,14 @@ export class GameRuntime {
     const desired = forward.scale(frame.moveY).add(right.scale(frame.moveX));
     const strength = Math.min(1, desired.length());
     if (strength > 0.001) desired.normalize();
-    const speed = 4.15 * strength;
+
+    // Sprinting or jumping leaves cover before that movement is applied, so the
+    // player never sprints or jumps while still flagged as protected.
+    const cover = getCoverState();
+    if (cover.active && (isRunHeld() || isJumpQueued())) releaseCover();
+    const guided = cover.active && cover.contact;
+    if (guided && strength > 0.001) this.applyCoverGuidance(desired, cover);
+    const speed = 4.15 * strength * (guided ? COVER_MOVE_SCALE : 1);
     const targetVelocity = desired.scale(speed);
     const accel = strength > 0.01 ? 12.5 : 21.0;
     this.velocity = Vector3.Lerp(this.velocity, targetVelocity, 1 - Math.exp(-accel * dt));
@@ -259,6 +287,23 @@ export class GameRuntime {
     this.updateHud();
   }
 
+  /**
+   * Steer movement along the cover surface. The tangent and normal span the
+   * horizontal plane, so this only rescales the component pushing into or away
+   * from the wall — the along-surface component is preserved exactly, which
+   * keeps the joystick responsive instead of snapping onto a rail.
+   */
+  private applyCoverGuidance(desired: Vector3, cover: CoverState): void {
+    const along = Vector3.Dot(desired, cover.tangent);
+    const away = Vector3.Dot(desired, cover.normal);
+    const outward = away >= 0
+      ? away * COVER_AWAY_FROM_SURFACE_DAMPING
+      : away * COVER_INTO_SURFACE_DAMPING;
+    this.coverMoveScratch.copyFrom(cover.normal).scaleInPlace(outward);
+    desired.copyFrom(cover.tangent).scaleInPlace(along).addInPlace(this.coverMoveScratch);
+    if (desired.lengthSquared() > 0.000001) desired.normalize();
+  }
+
   private updateThirdPersonCamera(dt: number, force: boolean): void {
     const target = this.player.cameraTarget.getAbsolutePosition();
     const cosPitch = Math.cos(this.pitch);
@@ -268,7 +313,36 @@ export class GameRuntime {
       Math.cos(this.yaw) * cosPitch,
     ).normalize();
     const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const desired = target.subtract(lookDirection.scale(this.cameraDistance)).add(right.scale(this.shoulderOffset));
+
+    const cover = getCoverState();
+    const inCover = cover.active && cover.contact;
+    const reduced = this.graphicsPreferences.reducedMotion;
+    if (inCover) {
+      // The cover normal points into open space, so the shoulder that agrees
+      // with it is the side that is not buried in the surface.
+      const bias = Vector3.Dot(right, cover.normal);
+      if (Math.abs(bias) > SHOULDER_FLIP_DEADZONE) this.shoulderSide = bias >= 0 ? 1 : -1;
+    } else {
+      this.shoulderSide = 1;
+    }
+
+    const step = Math.max(0, dt);
+    const shoulderRate = reduced ? SHOULDER_SMOOTHING_REDUCED : SHOULDER_SMOOTHING;
+    const coverRate = reduced ? COVER_CAMERA_SMOOTHING_REDUCED : COVER_CAMERA_SMOOTHING;
+    const coverTarget = inCover ? 1 : 0;
+    if (force) {
+      this.shoulderBlend = this.shoulderSide;
+      this.coverCameraBlend = coverTarget;
+    } else {
+      this.shoulderBlend += (this.shoulderSide - this.shoulderBlend) * (1 - Math.exp(-shoulderRate * step));
+      this.coverCameraBlend += (coverTarget - this.coverCameraBlend) * (1 - Math.exp(-coverRate * step));
+    }
+
+    const pullIn = COVER_CAMERA_PULL_IN * (reduced ? REDUCED_MOTION_CAMERA_SCALE : 1);
+    const distance = this.cameraDistance - this.coverCameraBlend * pullIn;
+    const desired = target
+      .subtract(lookDirection.scale(distance))
+      .add(right.scale(this.shoulderOffset * this.shoulderBlend));
     const collision = resolveThirdPersonCameraCollision(
       this.scene,
       target,

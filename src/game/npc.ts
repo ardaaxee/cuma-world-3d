@@ -10,7 +10,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import "../security-network.css";
-import { isInCover } from "./cover";
+import { coverDetectionScale, isInCover } from "./cover";
 import { isCrouched } from "./input";
 import {
   DECOY_AWARENESS_FLOOR,
@@ -312,12 +312,15 @@ class NpcAgent {
 
     const rateScale = Math.max(0.42, Math.min(1.4, awarenessRateScale));
     if (visible) {
+      // Directional: cover only helps when this guard is actually on the far
+      // side of the surface, so an exposed edge reads as no cover at all.
+      const coverScale = coverDetectionScale(this.root.position);
       this.lastSeenPosition = playerPosition.clone();
       this.investigateTimer = this.config.security ? 3.4 : 2.4;
       this.searchTimer = 0;
       const proximity = 1 - Math.min(1, distance / (this.config.security ? 9.0 : 6.2));
       const rate = this.config.security ? 0.52 + proximity * 1.05 : 0.28 + proximity * 0.62;
-      this.awareness = Math.min(1, this.awareness + dt * rate * rateScale);
+      this.awareness = Math.min(1, this.awareness + dt * rate * rateScale * coverScale);
     } else {
       const decayScale = rateScale > 1 ? 0.88 : rateScale < 1 ? 1.2 : 1;
       const searchHold = this.searchTimer > 0 ? 0.62 : 1;
@@ -455,7 +458,6 @@ export class NpcSystem {
     let strongest: AwarenessSnapshot = { state: "NORMAL", meter: 0, label: "" };
     const route = document.body.dataset.route;
     const stanceRisk = isCrouched() ? 0.7 : 1;
-    const coverRisk = isInCover() ? 0.56 : 1;
     const zoneSuspicion = awarenessActive ? getZoneSuspicion() : 0;
     const zoneRisk = 1 + zoneSuspicion * ZONE_AWARENESS_GAIN;
     this.updateZonePressure(dt, playerPosition, zoneSuspicion);
@@ -464,7 +466,7 @@ export class NpcSystem {
       let routeRisk = 1;
       if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
       if (route === "side") routeRisk = index === 1 ? 1.28 : index === 0 ? 0.92 : 1;
-      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk * coverRisk * zoneRisk);
+      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk * zoneRisk);
       if (snapshot.meter > strongest.meter) strongest = snapshot;
 
       const previous = this.securityStates[index] ?? "NORMAL";
