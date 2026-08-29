@@ -1,4 +1,4 @@
-# CLAUDE NEXT TASK — Milestone 03: Connected Back Office + Door / Access Depth
+# CLAUDE NEXT TASK — Milestone 04: Facility Security + Social Stealth + Field Focus
 
 Read `CLAUDE.md`, `CLAUDE_CODE_HANDOFF.md`, `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`, and `docs/CLAUDE_007_STYLE_GUIDE.md` before editing.
 
@@ -6,287 +6,317 @@ Work ONLY on branch `claude/full-game-development`.
 Do not modify `main`.
 Do not create a PR.
 
-Current collaboration HEAD before this milestone: `3778f22912c287a1071b66353f4740f809cac567`.
-Milestone 02 gameplay implementation is `89352a2f2a8e941f848c6c3737d19578cfe91e85` and is verified by Android workflow run `33244796378` through TypeScript/Vite, Android 16, debug APK, Play AAB, SHA/build manifest and artifact upload.
+Current collaboration HEAD before this milestone: `faef9f7c34595ad23425e584aee51ef9d352853a`.
+Milestone 03 gameplay implementation is `b965fe81cb16e09bec1be2f6f090e7b9b11786dd` and is verified by Android workflow run `33245899904` through TypeScript/Vite, Android 16, debug APK, Play AAB, SHA/build manifest and artifact upload.
 
 ## Goal
 
-Make the operation space feel like a believable connected facility rather than one market shell plus an exterior strip.
+Make the facility react as one believable security environment instead of a collection of unrelated awareness meters, while turning the Milestone 03 staff credential into the first real social-stealth tool and giving the existing OBSERVE control a contextual infiltration use.
 
-Build the first real internal infiltration topology and a reusable fictional door/access system so route choice, credentials, STAFF/RESTRICTED zones and hearing all affect physical traversal.
+This milestone must deepen systemic spycraft without adding combat, another movement controller, another NPC state machine, another zone system, or a large new HUD.
 
-This milestone should create systemic world depth, not only visual decoration.
-
-Do not redesign unrelated systems.
+The target is an original CUMA WORLD cinematic spy-thriller. Do not copy another game's names, UI, exact mechanics, dialogue, missions, characters or assets.
 
 ---
 
-# Part A — Expand the physical operation space
+# Part A — One authoritative Facility Security State
 
-Inspect `src/game/world-expansion.ts`, `src/game/operation-depth.ts`, `src/game/zones.ts`, `src/game/mission.ts`, and the market geometry in `src/game/runtime11.ts` before editing.
+Create ONE reusable facility-level security controller, preferably a focused module such as `src/game/facility-security.ts` if that fits the architecture.
 
-Extend the existing world instead of creating a second map/world system.
+Suggested state model:
+- CALM
+- WATCH
+- SEARCH
+- HIGH_ALERT
 
-Create a compact but believable connected internal area with at minimum:
+Names may differ, but there must be one authoritative state and one small typed snapshot/API.
 
-1. STAFF CORRIDOR
-   - connects sales/public space to back-of-house
-   - provides at least one sightline break and one useful cover position
+The controller should know at minimum:
+- current facility security state
+- a normalized security pressure/heat value
+- whether there is a valid last-known incident/search anchor
+- how long since confirmed contact
+- whether the current state is escalating or recovering
 
-2. BACK OFFICE / RECORDS ROOM
-   - contains or logically supports the MANIFEST stage
-   - RESTRICTED zone
-   - should not be a giant empty rectangle
-
-3. SECURITY / MONITORING ROOM
-   - RESTRICTED zone
-   - physically connected to another internal zone
-   - should create a future gameplay opportunity, even if not all later security mechanics are implemented now
-
-4. UTILITY / ELECTRICAL ROOM OR SERVICE NOOK
-   - creates an alternate internal connection/shortcut
-   - should provide a gameplay reason to enter, not decoration only
-
-5. STOCK / LOADING CONNECTION
-   - physically connects the existing service/loading route to the internal staff network
-   - the side route must become a real alternate infiltration loop, not merely an exterior detour
-
-World requirements:
-- use connected rooms/corridors with loops where practical
-- preserve the existing public sales area and service/loading area
-- reuse existing materials or add restrained PBR materials; do not create a second VisualPolish system
-- structural geometry can live in the existing world expansion ownership
-- avoid excessive PointLights; use emissive fixtures / existing lighting approach when possible
-- every new room/route must have a gameplay purpose: access, objective, intel, cover, security, shortcut, patrol exposure or extraction
-- keep collision geometry truthful
-- do not add fake interactive-looking doors that never work
-
-Target topology should allow at least these distinct traversals:
-
-PUBLIC / FRONT -> controlled staff entry -> STAFF CORRIDOR -> BACK OFFICE
-SERVICE / SIDE -> LOADING / STOCK -> STAFF CORRIDOR -> BACK OFFICE
-UTILITY SHORTCUT -> reconnect to the internal network instead of ending in a decorative dead end
-
-Exact coordinates should be chosen from the real current geometry after inspection, not guessed from this document.
-
----
-
-# Part B — Reusable fictional Door / Access system
-
-Create ONE reusable door/access-state system. Do not hard-code unrelated door logic separately for every room.
-
-A door entry should support at minimum:
-- unique id
-- display label
-- OPEN / CLOSED state
-- LOCKED / UNLOCKED state
-- access requirement
-- collision state that matches physical state
-- contextual interaction text
-- optional auto-close only where it makes gameplay sense
-- world position / hinge or slide configuration
-
-Suggested fictional access requirement categories:
-- NONE
-- STAFF_CREDENTIAL
-- ACCESS_CODE
-- SECURITY_ACCESS
-
-Names/data structures may differ if the existing architecture suggests a cleaner design.
-
-Important:
-- these are fictional game access states only
-- do not add real-world lock bypass, hacking, credential theft or intrusion instructions
-- do not simulate real security protocols
-
-Door interaction must use the existing mobile interaction flow without adding a new permanent button.
-
-Avoid prompt fights between:
-- normal runtime interactions
-- staged operation terminals
-- CCTV interaction
-- new doors
-
-There must be deterministic ownership/priority when more than one interactable is nearby. Prefer extending the existing interaction architecture or one small shared resolver instead of several competing DOM owners.
-
-Door behavior:
-- opening/closing should animate clearly but cheaply
-- collision must change at the correct point so players do not walk through visibly closed doors
-- a locked door must remain physically blocking
-- invalid access should show a short requirement message instead of silently doing nothing
-- pause/background/resume must not leave a door halfway in an invalid collision state
-- Reduced Motion may shorten/simplify nonessential easing but doors still need readable state
-
----
-
-# Part C — Integrate Milestone 01 hearing with door interactions
-
-Do not create a second noise model.
-
-Extend the authoritative `src/game/noise.ts` model only if necessary so a meaningful door interaction can create a short fictional environment noise event.
-
-Requirements:
-- normal door use may create a small/medium impulse
-- it should be materially quieter than DECOY
-- it must never instant-ALERT the facility by itself
-- a nearby guard may become CURIOUS and investigate the door area
-- opening a door should not continuously track the player after the event
-- quiet/static doors do not produce noise every frame
-
-If the existing noise API is too specific, generalize it minimally rather than adding another event/noise subsystem.
-
----
-
-# Part D — Turn ACCESS into a real staff credential / social-stealth benefit
-
-Milestone 01 already exposes `setZoneAccessGranted()` and the zone model already distinguishes PUBLIC / STAFF / RESTRICTED.
-
-Use the existing operation chain so the ACCESS stage has a real physical consequence.
-
-Desired behavior:
-- before ACCESS is completed, controlled STAFF entry should require a staff credential or force the player to use another physical route
-- completing the ACCESS terminal should grant a fictional temporary STAFF CREDENTIAL / operation credential
-- that credential should unlock appropriate STAFF doors
-- STAFF-zone suspicion should become substantially lower with valid access
-- RESTRICTED rooms should still generate meaningful suspicion; the staff credential must NOT make the player universally authorized
-- existing MANIFEST and VERIFY stages remain in order
-
-Do not add fake dialogue/bluff screens in this milestone.
-
-Use the existing `setZoneAccessGranted()` hook or refactor it minimally into an explicit credential state if that makes the code more correct.
-
-The credential must survive the existing mission save/restore flow when reasonably possible.
-Old saves must not crash; migrate/default safely.
-
----
-
-# Part E — Intel-driven physical opportunity
-
-Add at least ONE meaningful intel/access opportunity that changes traversal.
-
-Examples of acceptable original game behavior:
-- discovering an existing/repositioned staff-route intel reveals that a utility door can be used
-- discovering a security-room access clue makes a fictional SECURITY_ACCESS door usable
-- existing side-route intel makes the loading/stock connection clearly usable
-
-Requirements:
-- intel must change a door/access/world affordance, not only increment a counter
-- do not add permanent enemy wallhack
-- do not add real-world hacking instructions
-- keep it consistent with the existing recon system and mission save
-
-Do not create a huge planning UI in this milestone.
-
----
-
-# Part F — Reposition / integrate operation targets into the new world
-
-The ACCESS -> MANIFEST -> VERIFY -> EXTRACT chain must remain intact.
-
-However, the targets should now make spatial sense:
-- ACCESS at or near a plausible public/staff transition or credential point
-- MANIFEST in the new back-office/records network
-- VERIFY at a physically distinct delivery/records location
-- extraction still requires leaving the operation area
-
-Do not duplicate operation targets.
-Move/retarget the existing ones if needed.
-
-The mission should require actual traversal through the expanded topology instead of completing three interactions in nearly the same simple shell.
-
----
-
-# Part G — Zone model expansion
-
-Extend the existing `ZONE_VOLUMES`; do not create a second zone implementation.
-
-Expected zone assignment:
-- public sales space -> PUBLIC
-- staff corridor / stock / loading connection -> STAFF
-- back office / records -> RESTRICTED
-- security room -> RESTRICTED
-- utility area -> STAFF or RESTRICTED based on the final topology
+Security state inputs may include:
+- guard visual suspicion crossing meaningful thresholds
+- confirmed guard ALERT
+- confirmed CCTV ALERT
+- repeated local suspicious events
+- existing security-network broadcasts
+- sustained zone suspicion only as a weak contributor
 
 Rules:
-- volumes should follow the real new geometry closely enough to avoid obvious false positives
-- legitimate staff credential reduces STAFF pressure
-- RESTRICTED pressure remains meaningful
-- returning to PUBLIC still allows normal recovery
+- ordinary footsteps alone can NEVER force HIGH_ALERT
+- a normal door-noise event alone can NEVER force HIGH_ALERT
+- a single CURIOUS guard is not a facility emergency
+- a confirmed visual/CCTV alert may cause SEARCH/HIGH_ALERT according to clear thresholds
+- do not give all guards the player's current position
+- facility state may share a LAST-KNOWN incident point, never magical live tracking
+- recovery must use hysteresis/timers so the state does not flicker every frame
+- after contact is lost and the player remains quiet/unseen, HIGH_ALERT -> SEARCH -> WATCH -> CALM should be possible
+
+Publish a compact signal such as `document.body.dataset.securityState` only if useful. Avoid per-frame DOM writes.
+
+Do not replace `MissionDirector.reportAlert()` scoring. Confirmed alert events should still count for mission/debrief exactly once per real alert cycle.
 
 ---
 
-# Part H — Preserve previous milestones
+# Part B — Coordinated multi-point search
 
-Do NOT regress Milestone 01:
-- player noise
-- NPC hearing
-- landing impulses
-- DECOY priority
-- PUBLIC / STAFF / RESTRICTED suspicion/recovery
+Extend the existing NPC investigation/search architecture in `src/game/npc.ts`; do NOT build a second AI state machine.
 
-Do NOT regress Milestone 02:
-- directional cover surface state
-- observer-specific cover protection
-- NPC/CCTV truthful cover detection
-- cover-guided movement
-- RUN/JUMP cover exits
-- cover-aware shoulder camera
-- cover performance optimizations
+Current AI already has:
+- NORMAL / CURIOUS / SUSPICIOUS / ALERT
+- last-known position
+- investigation
+- a local search timer
+- security broadcasts
+- hearing
 
-New internal walls/crates should naturally work with directional cover where their shape is suitable.
+Build on those.
+
+Desired behavior:
+
+### WATCH
+- security NPCs become more observant without knowing the player location
+- small authored scan/pause behavior is acceptable
+- normal worker NPC behavior should not turn into security behavior
+
+### SEARCH
+- facility has a last-known incident anchor
+- nearby security units receive DIFFERENT local search sectors/points around that anchor instead of all stacking on one coordinate
+- search points must be generated only when needed, not every frame
+- avoid obviously selecting a point through a solid wall when practical; cheap LOS/path-clear tests are acceptable
+- guards should inspect, turn, pause and move between a small number of local points
+- if no new evidence appears, search eventually relaxes
+
+### HIGH_ALERT
+- confirmed contact produces the strongest coordinated response
+- nearby security may move/search faster and scan more aggressively, within reasonable mobile/gameplay limits
+- CCTV may become slightly more responsive, but JAM and permanent bypass must remain meaningful
+- the player still wins by breaking sight, reducing noise and leaving the last-known area
+- no perfect omniscience
+
+Do NOT add weapons, gore or combat behavior in this milestone.
+
+Do not add a navmesh rewrite. Use the current movement architecture and small, defensible search-point validation.
 
 ---
 
-# Existing systems that must remain working
+# Part C — Facility reaction through existing doors
 
-Preserve:
-- joystick + touch look multitouch
-- RUN / JUMP / CROUCH
-- SİPER
-- SCAN / SIGNAL JAM / DECOY
-- CCTV detection / bypass
-- ANA / YAN route selection
-- ACCESS -> MANIFEST -> VERIFY -> EXTRACT
-- security broadcasts / search
-- settings / debrief pause behavior
-- graphics tiers
-- Android lifecycle handling
-- save compatibility
+Reuse the ONE Milestone 03 door/access system.
 
-Do not reimplement them.
+When security escalates:
+- selected controlled doors may automatically close for readable facility response
+- never permanently hard-lock every route
+- never create an unwinnable softlock
+- existing access requirements remain authoritative
+- a door that the player is entitled to use must remain usable after it closes
+- utility/stock alternate routes must remain meaningful
+
+Do not add a second door registry.
+
+Automatic security closing should be silent or use the existing deliberate door-noise rules only if player-caused. Do not spam environment impulses.
 
 ---
 
-# Performance requirements
+# Part D — First real social-stealth / COVER STORY interaction
 
-This is a world expansion, so mobile cost matters.
+Turn the existing fictional STAFF CREDENTIAL into a limited social-stealth opportunity.
 
-- static structural meshes should be frozen where safe
-- reuse materials instead of creating one material per wall/prop
-- avoid many dynamic lights
-- do not add per-frame scans over every door/room if one focused interaction ray or registry can solve it
-- do not add a separate requestAnimationFrame loop per door
-- one system-level update path for animated doors is preferred
+Use an original CUMA WORLD concept such as `COVER STORY` / `PERSONEL KARTINI GÖSTER` / `RUTİNİ DOĞRULA`.
+
+This must use the EXISTING interact control. Do not add a permanent BLUFF button and do not create a dialogue tree.
+
+A social check should only become actionable when conditions are believable, for example:
+- player is in a STAFF zone, NOT RESTRICTED
+- player currently has the staff credential
+- a relevant guard is close enough and has visual contact
+- that guard is CURIOUS or low/mid SUSPICIOUS, not fully ALERT
+- facility is not in HIGH_ALERT
+- player is standing normally, not crouched in cover
+- player is not currently sprinting
+- recent player noise is low enough
+- social check cooldown/usage rules allow it
+
+On successful COVER STORY:
+- lower that specific guard's awareness by a bounded amount; do not erase it to zero automatically
+- reduce STAFF zone suspicion by a bounded amount through the existing zone model
+- optionally delay/reduce escalation into WATCH when appropriate
+- give restrained feedback/haptic
+- create a meaningful cooldown so it is an opportunity, not infinite invisibility
+
+It must NOT work in RESTRICTED rooms.
+It must NOT work against an ALERT guard.
+It must NOT instantly clear SEARCH/HIGH_ALERT for the whole facility.
+It must NOT create fake spoken dialogue if no dialogue system exists.
+
+Add the smallest reusable API needed, e.g. a way for `NpcSystem` to expose a current social-check target and resolve a bounded de-escalation.
+
+Interaction priority must remain deterministic with terminals, doors, CCTV and mission objectives.
+
+---
+
+# Part E — FIELD FOCUS using the existing OBSERVE control
+
+Do not add another permanent action button.
+
+The current `OBSERVE` / recon control already exists.
+
+Preserve current behavior during:
+- BRIEFING / RECON / PLANNING: existing recon/analysis behavior remains intact
+
+During:
+- INFILTRATE / EXTRACT
+
+the same control should become a short original tactical-assistance mode called `FIELD FOCUS` or Turkish UI equivalent such as `SAHA ODAĞI`.
+
+FIELD FOCUS requirements:
+- short active duration, roughly 2-4 seconds
+- meaningful cooldown, roughly 7-12 seconds
+- no time slowdown
+- no permanent wallhack
+- never reveal unknown NPCs through walls
+- never reveal every enemy indefinitely
+- no expensive full-screen post effect required
+
+It MAY briefly emphasize only information the player has earned or can already reasonably perceive, such as:
+- current operation target / objective context
+- nearby known door/access states
+- previously discovered intel-linked opportunities
+- known CCTV opportunity if camera intel was discovered
+- extraction context when active
+- facility security state / last-known search context in an abstract way
+
+Prefer world-space markers/outlines/status treatment for a small number of relevant known objects. Reuse/pool markers where practical.
+
+FIELD FOCUS should make spycraft more readable, not solve the mission automatically.
+
+LOW tier:
+- fewer simultaneous markers
+- no expensive animation requirement
+
+Reduced Motion:
+- static/faded presentation instead of pulse/sweep motion
+
+The existing recon system must remain unchanged before infiltration.
+
+---
+
+# Part F — Security / social feedback
+
+Add restrained mobile-readable feedback only.
+
+A compact facility status may display states like:
+- TESİS · NORMAL
+- TESİS · İZLEME
+- TESİS · ARAMA
+- TESİS · YÜKSEK ALARM
+
+Exact Turkish labels may differ.
+
+Rules:
+- no giant alert banner permanently covering play
+- no constant screen shake
+- no cinematic bars
+- no cheap neon overload
+- update DOM only when displayed state changes
+- respect safe areas and landscape
+- Reduced Motion removes nonessential movement
+
+Existing awareness, stealth signals, cover status and door status remain usable; do not create redundant meters for the same value.
+
+---
+
+# Part G — Zone model support for social stealth
+
+Extend the existing `src/game/zones.ts`; do not create a second suspicion model.
+
+Add only the smallest API needed for a successful social check, such as a bounded suspicion reduction.
+
+Requirements:
+- reduction cannot make RESTRICTED areas socially safe
+- COVER STORY only affects STAFF social suspicion
+- returning to PUBLIC still uses normal recovery
+- existing credential scaling remains authoritative
+- no negative suspicion values
+- no per-frame extra DOM reads
+
+---
+
+# Part H — Existing gadgets must interact sensibly with facility state
+
+Preserve SCAN / SIGNAL JAM / DECOY.
+
+Expected interactions:
+- DECOY can create a false local incident/search point, but must not automatically force HIGH_ALERT
+- SIGNAL JAM still suppresses CCTV temporarily even during SEARCH/HIGH_ALERT
+- permanent CCTV bypass remains valuable
+- SCAN/FIELD FOCUS responsibilities should not duplicate each other completely
+  - SCAN = gadget/intel signal discovery/readability
+  - FIELD FOCUS = short contextual tactical readability using already-earned knowledge
+
+Do not delete or rename existing gadgets unnecessarily.
+
+---
+
+# Part I — Save / mission / replay compatibility
+
+Do not break the existing mission save.
+
+Facility security state and temporary FIELD FOCUS cooldown do NOT need to persist across app restart unless there is a compelling architectural reason.
+
+Mission progression remains:
+ACCESS -> MANIFEST -> VERIFY -> EXTRACT.
+
+Existing route, intel, alerts, opportunities and score remain compatible.
+
+If COVER STORY is added to opportunity scoring, generalize the known opportunity-id restore path safely and keep old saves valid. Do not change save schema unless necessary.
+
+---
+
+# Part J — Performance requirements
+
+Mobile cost matters.
+
+- one facility-security update path; no timer/RAF per guard or room
+- do not add per-frame full-scene scans
+- generate search sectors only on incident/state changes or low cadence
+- reuse existing LOS/sensing results where practical
+- no new raycast per NPC per rendered frame unless absolutely justified
+- pool/reuse vectors/markers where reasonable
+- FIELD FOCUS must have bounded marker count
+- no new dynamic lights required
+- no expensive post-processing requirement
 - avoid per-frame DOM writes
-- LOW tier must remain playable; geometry may simplify only if it does not break routes/collision
-- keep bundle budgets green
+- LOW tier must retain all gameplay behavior with cheaper presentation/cadence
+- keep existing JS bundle budgets green
+
+Do not perform an unrelated large boot-chunk refactor in this milestone. The known `debrief -> mission -> operation-depth -> world-expansion -> doors` startup dependency is documented; keep new dependencies pointed away from the boot path where practical.
 
 ---
 
 # Acceptance scenarios
 
-1. Before ACCESS credential, player approaches a controlled staff door from PUBLIC: door remains locked and gives a clear fictional credential requirement.
-2. Player completes ACCESS: temporary staff credential is granted, valid STAFF door becomes usable, and STAFF-zone pressure is substantially reduced.
-3. Same staff credential does NOT eliminate RESTRICTED-zone suspicion in back office/security room.
-4. Front route can physically reach the back office through the controlled staff network.
-5. Side route can physically enter through loading/stock and reconnect to the internal network.
-6. At least one utility/security-related alternate connection changes based on discovered intel/access state.
-7. A nearby NPC can investigate a door-open noise event, but the door does not cause instant ALERT or wall tracking.
-8. Closed/locked doors block collision; open doors are traversable; animation and collision never visibly disagree for long.
-9. New structural walls/crates work with the existing directional SİPER system when physically suitable.
-10. ACCESS -> MANIFEST -> VERIFY -> EXTRACT remains completable after the world expansion.
-11. Existing old save data loads without crashing and gets safe defaults for new access state.
-12. Pause/background/resume does not leave doors, prompts or collision in an invalid state.
+1. One guard becomes CURIOUS from a normal door sound: facility does NOT jump to HIGH_ALERT.
+2. A guard clearly sees the player long enough to ALERT: facility escalates and stores a last-known incident point.
+3. Player breaks sight and moves quietly: guards search the last-known area, not the player's live hidden position.
+4. Two security guards in SEARCH choose meaningfully different local search points/sectors instead of stacking exactly together.
+5. With no new evidence, facility de-escalates over time from HIGH_ALERT/SEARCH toward WATCH/CALM.
+6. CCTV confirmed detection can escalate facility state; SIGNAL JAM still suppresses CCTV and does not instantly clear existing human search.
+7. During escalation, controlled doors may close but no valid route is permanently locked and current fictional access requirements still work.
+8. In STAFF with credential and a CURIOUS/SUSPICIOUS guard, calm normal-standing player can get a contextual COVER STORY interaction.
+9. Successful COVER STORY lowers only that guard and some STAFF suspicion; it does not erase the whole facility state.
+10. COVER STORY is unavailable while crouched/in cover, sprinting/noisy, in RESTRICTED, against ALERT, or during HIGH_ALERT.
+11. Before infiltration, OBSERVE still performs recon exactly as before.
+12. During INFILTRATE/EXTRACT, OBSERVE becomes short FIELD FOCUS with cooldown and highlights only known/contextual information.
+13. FIELD FOCUS never reveals unknown NPCs through walls and never becomes permanent wallhack.
+14. LOW tier and Reduced Motion preserve the mechanic with cheaper/static presentation.
+15. Pause/background/resume clears or freezes temporary focus/social/security timers without duplicate listeners or stuck UI.
+16. Existing ACCESS -> MANIFEST -> VERIFY -> EXTRACT mission remains completable on both front and side routes.
+17. Old saves load without crashing.
 
 ---
 
@@ -296,20 +326,23 @@ Before committing:
 - run `npm run build`
 - fix every TypeScript/Vite failure
 - inspect changed files for unrelated rewrites
-- confirm there is only one door/access system
-- confirm old mission save migration/default path is safe
-- inspect multitouch interaction ownership
+- confirm there is ONE facility-security controller
+- confirm existing NpcSystem investigation/search remains the AI foundation
+- confirm social interaction uses existing interact ownership
+- confirm recon is unchanged before infiltration
+- confirm no unknown-NPC wallhack was introduced
 - inspect pause/resume cleanup
+- keep bundle budgets green
 
 Commit message suggestion:
-`feat: expand back office and access routes`
+`feat: coordinate facility security and social stealth`
 
 After pushing:
 - manually dispatch `.github/workflows/android-play-runtime.yml` against `claude/full-game-development` if it does not auto-run
 - verify the exact workflow run for the gameplay commit
-- because the job-step API has shown stale snapshots, confirm final result from the run status plus artifact/job log when needed
+- because the job-step endpoint has repeatedly served stale snapshots, confirm final status from workflow-run completion PLUS artifact/job-log evidence when needed
 - do not claim APK/AAB success until artifact/build evidence exists
-- update `CLAUDE_CODE_HANDOFF.md` with gameplay HEAD, changed files, topology, door/access API, credential behavior, CI result, remaining real-device checks and planned Milestone 04
+- update `CLAUDE_CODE_HANDOFF.md` with gameplay HEAD, changed files, facility state API, AI behavior, social-check rules, FIELD FOCUS behavior, performance, CI result, real-device checks and planned Milestone 05
 
 Then STOP.
-Do not begin Milestone 04 in the same implementation commit.
+Do not begin Milestone 05 in the same implementation commit.
