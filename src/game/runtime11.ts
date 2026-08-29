@@ -20,9 +20,12 @@ import { resolveThirdPersonCameraCollision } from "./camera-collision";
 import { PlayerCharacter } from "./character";
 import { MobileInput } from "./input";
 import { MissionDirector } from "./mission";
+import { reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
 import { NpcSystem, type AwarenessSnapshot } from "./npc";
 import { SecurityCameraSystem } from "./security";
+import { StealthSignalsHud } from "./stealth-signals";
 import { VisualPolish } from "./visuals";
+import { resetZonePresence, updateZonePresence } from "./zones";
 import {
   type GraphicsPreferences,
   type ResolvedGraphicsProfile,
@@ -47,6 +50,7 @@ export class GameRuntime {
   private readonly audio = new GameAudio();
   private readonly input = new MobileInput();
   private readonly mission = new MissionDirector();
+  private readonly stealthSignals = new StealthSignalsHud();
   private shadowGenerator: ShadowGenerator | null = null;
   private readonly shadowCasters: Mesh[] = [];
   private graphicsPreferences = loadGraphicsPreferences();
@@ -116,6 +120,8 @@ export class GameRuntime {
       interaction: "camera-bypass",
     } satisfies GameMetadata;
     this.updateThirdPersonCamera(0, true);
+    resetPlayerNoise();
+    resetZonePresence();
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
@@ -141,6 +147,8 @@ export class GameRuntime {
     this.paused = paused;
     this.audio.setPaused(paused);
     if (paused) {
+      resetPlayerNoise();
+      this.stealthSignals.setHidden(true);
       this.interactionEl.classList.add("hidden");
       this.observationEl.classList.add("hidden");
     }
@@ -227,6 +235,12 @@ export class GameRuntime {
 
     const missionState = this.mission.snapshot().state;
     const awarenessActive = missionState === "INFILTRATE" || missionState === "EXTRACT";
+
+    const playerPosition = this.player.position;
+    reportPlayerMovement(playerPosition.x, playerPosition.y, playerPosition.z, horizontalSpeed, dt);
+    const zone = updateZonePresence(dt, playerPosition.x, playerPosition.y, playerPosition.z, awarenessActive);
+    this.stealthSignals.update(dt, samplePlayerNoise(), zone, awarenessActive);
+
     const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const cameraAwareness = this.securitySystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const strongestAwareness = cameraAwareness.meter > npcAwareness.meter ? cameraAwareness : npcAwareness;

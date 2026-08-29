@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   Color3,
   Mesh,
   MeshBuilder,
@@ -11,8 +12,51 @@ import {
 import "../security-network.css";
 import { isInCover } from "./cover";
 import { isCrouched } from "./input";
+import {
+  DECOY_AWARENESS_FLOOR,
+  DECOY_NOISE_RADIUS,
+  drainNoiseImpulses,
+  samplePlayerNoise,
+} from "./noise";
+import {
+  ZONE_AWARENESS_GAIN,
+  ZONE_INVESTIGATE_FLOOR,
+  ZONE_INVESTIGATE_THRESHOLD,
+  getZoneSuspicion,
+} from "./zones";
 
 export type AwarenessState = "NORMAL" | "CURIOUS" | "SUSPICIOUS" | "ALERT";
+
+/**
+ * Hearing tuning. Every value is deliberately capped so sound alone can reach
+ * CURIOUS/SUSPICIOUS but never ALERT — ordinary footsteps must not raise the
+ * facility on their own.
+ */
+const HEARING_CEILING_BASE = 0.2;
+const HEARING_CEILING_GAIN = 0.52;
+/** Hard stop below the ALERT threshold (0.86); sound alone must never raise it. */
+const HEARING_ABSOLUTE_CEILING = 0.84;
+const HEARING_AWARENESS_RATE = 1.05;
+/** Below this the player is treated as silent and no hearing work runs at all. */
+const HEARING_MIN_LOUDNESS = 0.05;
+/** Effective loudness below this is heard as ambience and never investigated. */
+const HEARING_INVESTIGATE_EFFECTIVE = 0.34;
+const HEARING_INVESTIGATE_PRESSURE = 0.42;
+const HEARING_INVESTIGATE_COOLDOWN = 2.4;
+const HEARING_PRESSURE_DECAY = 0.55;
+const HEARING_INVESTIGATE_FLOOR_BASE = 0.24;
+const HEARING_INVESTIGATE_FLOOR_GAIN = 0.16;
+/** A wall muffles a sprint, it does not erase it. */
+const HEARING_OCCLUSION_ATTENUATION = 0.5;
+const HEARING_OCCLUSION_MIN_LOUDNESS = 0.3;
+/** Cheap stand-in used when occlusion rays are disabled on the LOW tier. */
+const HEARING_OCCLUSION_FALLBACK = 0.8;
+
+const IMPULSE_AWARENESS_FLOOR_BASE = 0.2;
+const IMPULSE_AWARENESS_FLOOR_GAIN = 0.14;
+
+/** Sustained zone pressure re-checks are rare and never stack into an alert. */
+const ZONE_INVESTIGATE_COOLDOWN = 9;
 
 export interface AwarenessSnapshot {
   state: AwarenessState;
@@ -34,6 +78,12 @@ type PendingBroadcast = {
   severity: "SUSPICIOUS" | "ALERT";
 };
 
+/** Shared scratch state so hearing never allocates inside the sensing loop. */
+const hearingPoint = new Vector3();
+const hearingRay = new Ray(Vector3.Zero(), new Vector3(0, 0, 1), 1);
+const occludesSound = (mesh: AbstractMesh): boolean =>
+  mesh instanceof Mesh && mesh.checkCollisions && mesh.isEnabled();
+
 class NpcAgent {
   readonly root: TransformNode;
   private readonly route: Vector3[];
@@ -48,6 +98,9 @@ class NpcAgent {
   private investigateTimer = 0;
   private searchTimer = 0;
   private searchDirection = 1;
+  private hearingPressure = 0;
+  private hearingCooldown = 0;
+  private occlusionRays = true;
 
   constructor(
     private readonly scene: Scene,
@@ -105,6 +158,7 @@ class NpcAgent {
 
     this.investigateTimer = Math.max(0, this.investigateTimer - dt);
     this.searchTimer = Math.max(0, this.searchTimer - dt);
+    this.hearingCooldown = Math.max(0, this.hearingCooldown - dt);
     this.updatePatrol(dt);
     this.senseTimer -= dt;
     if (this.senseTimer <= 0) {
@@ -126,12 +180,33 @@ class NpcAgent {
       this.searchTimer = 0;
       this.lastSeenPosition = null;
       this.senseTimer = this.senseInterval;
+      this.hearingPressure = 0;
+      this.hearingCooldown = 0;
     }
   }
 
   setSenseInterval(seconds: number): void {
     this.senseInterval = Math.max(0.08, Math.min(0.24, seconds));
     this.senseTimer = Math.min(this.senseTimer, this.senseInterval);
+  }
+
+  /** LOW tier drops the occlusion ray and falls back to a flat attenuation. */
+  setHearingOcclusion(enabled: boolean): void {
+    this.occlusionRays = enabled;
+  }
+
+  /**
+   * React to a one-shot sound (landing, decoy). Reuses the existing
+   * investigation/last-known-position behaviour instead of adding a second
+   * state machine.
+   */
+  hearImpulse(point: Vector3, loudness: number, deliberate: boolean): void {
+    if (!this.enabled) return;
+    const floor = deliberate
+      ? DECOY_AWARENESS_FLOOR
+      : IMPULSE_AWARENESS_FLOOR_BASE + loudness * IMPULSE_AWARENESS_FLOOR_GAIN;
+    this.investigate(point, floor);
+    this.hearingCooldown = Math.max(this.hearingCooldown, HEARING_INVESTIGATE_COOLDOWN * 0.5);
   }
 
   isSecurity(): boolean {
@@ -208,6 +283,7 @@ class NpcAgent {
       this.investigateTimer = 0;
       this.searchTimer = 0;
       this.lastSeenPosition = null;
+      this.hearingPressure = 0;
       this.refreshState();
       return;
     }
@@ -249,7 +325,61 @@ class NpcAgent {
       if (this.awareness < 0.18 && this.investigateTimer <= 0 && this.searchTimer <= 0) this.lastSeenPosition = null;
     }
 
+    this.updateHearing(dt, rateScale);
     this.refreshState();
+  }
+
+  /**
+   * Hearing runs independently of the vision cone, so a guard facing away still
+   * reacts to a sprint behind them. It can only ever push awareness up to a
+   * loudness-derived ceiling that stays below ALERT.
+   */
+  private updateHearing(dt: number, rateScale: number): void {
+    const noise = samplePlayerNoise();
+    let effective = 0;
+
+    if (noise.loudness > HEARING_MIN_LOUDNESS) {
+      hearingPoint.copyFromFloats(noise.x, noise.y, noise.z);
+      const distance = Vector3.Distance(this.root.position, hearingPoint);
+      if (distance < noise.radius) {
+        let attenuation = 1 - distance / noise.radius;
+        if (noise.loudness >= HEARING_OCCLUSION_MIN_LOUDNESS) {
+          attenuation *= this.occlusionFactor(hearingPoint, distance);
+        }
+        effective = noise.loudness * attenuation;
+      }
+    }
+
+    if (effective >= HEARING_INVESTIGATE_EFFECTIVE) {
+      this.hearingPressure = Math.min(1.5, this.hearingPressure + dt * effective);
+    } else {
+      this.hearingPressure = Math.max(0, this.hearingPressure - dt * HEARING_PRESSURE_DECAY);
+    }
+
+    if (effective <= 0) return;
+
+    const ceiling = Math.min(HEARING_ABSOLUTE_CEILING, HEARING_CEILING_BASE + effective * HEARING_CEILING_GAIN);
+    if (this.awareness < ceiling) {
+      this.awareness = Math.min(ceiling, this.awareness + dt * effective * HEARING_AWARENESS_RATE * rateScale);
+    }
+
+    if (this.hearingPressure >= HEARING_INVESTIGATE_PRESSURE && this.hearingCooldown <= 0) {
+      this.hearingCooldown = HEARING_INVESTIGATE_COOLDOWN;
+      this.hearingPressure = 0;
+      this.investigate(hearingPoint, HEARING_INVESTIGATE_FLOOR_BASE + effective * HEARING_INVESTIGATE_FLOOR_GAIN);
+    }
+  }
+
+  private occlusionFactor(target: Vector3, distance: number): number {
+    if (!this.occlusionRays) return HEARING_OCCLUSION_FALLBACK;
+    if (distance <= 0.001) return 1;
+    hearingRay.origin.copyFrom(this.root.position);
+    hearingRay.origin.y += 1.55;
+    hearingRay.direction.copyFrom(target).subtractInPlace(hearingRay.origin).normalize();
+    hearingRay.length = distance;
+    const blocker = this.scene.pickWithRay(hearingRay, occludesSound);
+    const hitDistance = blocker?.hit ? blocker.distance ?? distance : distance;
+    return hitDistance < distance - 0.35 ? HEARING_OCCLUSION_ATTENUATION : 1;
   }
 
   private refreshState(): void {
@@ -278,6 +408,7 @@ export class NpcSystem {
   private pendingBroadcast: PendingBroadcast | null = null;
   private broadcastCooldown = 0;
   private networkStatusTimer = 0;
+  private zoneCheckCooldown = 0;
 
   constructor(scene: Scene, onAlert: (name: string) => void, addShadowCaster: (mesh: Mesh) => void) {
     this.agents = [
@@ -311,23 +442,29 @@ export class NpcSystem {
       if (!detail || !Number.isFinite(detail.x) || !Number.isFinite(detail.y) || !Number.isFinite(detail.z)) return;
       const point = new Vector3(detail.x, detail.y, detail.z);
       for (const agent of this.agents) {
-        if (Vector3.Distance(agent.root.position, point) <= 13.5) agent.investigate(point);
+        if (Vector3.Distance(agent.root.position, point) <= DECOY_NOISE_RADIUS) {
+          agent.hearImpulse(point, 1, true);
+        }
       }
     });
   }
 
   update(dt: number, playerPosition: Vector3, playerCollider: Mesh, awarenessActive: boolean): AwarenessSnapshot {
     this.updateSecurityNetwork(dt);
+    this.dispatchNoiseImpulses(awarenessActive);
     let strongest: AwarenessSnapshot = { state: "NORMAL", meter: 0, label: "" };
     const route = document.body.dataset.route;
     const stanceRisk = isCrouched() ? 0.7 : 1;
     const coverRisk = isInCover() ? 0.56 : 1;
+    const zoneSuspicion = awarenessActive ? getZoneSuspicion() : 0;
+    const zoneRisk = 1 + zoneSuspicion * ZONE_AWARENESS_GAIN;
+    this.updateZonePressure(dt, playerPosition, zoneSuspicion);
 
     for (const [index, agent] of this.agents.entries()) {
       let routeRisk = 1;
       if (route === "main") routeRisk = index === 0 ? 1.08 : index === 1 ? 0.96 : 1;
       if (route === "side") routeRisk = index === 1 ? 1.28 : index === 0 ? 0.92 : 1;
-      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk * coverRisk);
+      const snapshot = agent.update(dt, playerPosition, playerCollider, awarenessActive, routeRisk * stanceRisk * coverRisk * zoneRisk);
       if (snapshot.meter > strongest.meter) strongest = snapshot;
 
       const previous = this.securityStates[index] ?? "NORMAL";
@@ -353,8 +490,52 @@ export class NpcSystem {
     const senseInterval = tier === "LOW" ? 0.18 : tier === "MEDIUM" ? 0.14 : tier === "ULTRA" ? 0.09 : 0.11;
     this.agents.forEach((agent, index) => {
       agent.setSenseInterval(senseInterval);
+      agent.setHearingOcclusion(tier !== "LOW");
       agent.setEnabled(tier !== "LOW" || index < 2);
     });
+  }
+
+  /**
+   * Landing bursts and other one-shot sounds reach every agent in range once.
+   * The queue is always drained so nothing is replayed later, but sounds made
+   * before the infiltration begins are discarded rather than acted on.
+   */
+  private dispatchNoiseImpulses(awarenessActive: boolean): void {
+    const impulses = drainNoiseImpulses();
+    if (!awarenessActive || impulses.length === 0) return;
+    for (const impulse of impulses) {
+      hearingPoint.copyFromFloats(impulse.x, impulse.y, impulse.z);
+      for (const agent of this.agents) {
+        if (Vector3.Distance(agent.root.position, hearingPoint) > impulse.radius) continue;
+        agent.hearImpulse(hearingPoint, impulse.loudness, impulse.deliberate);
+      }
+    }
+  }
+
+  /**
+   * Standing somewhere the player does not belong eventually draws a check from
+   * the nearest security unit. It reuses investigation, so leaving the zone and
+   * letting the pressure decay ends it.
+   */
+  private updateZonePressure(dt: number, playerPosition: Vector3, zoneSuspicion: number): void {
+    this.zoneCheckCooldown = Math.max(0, this.zoneCheckCooldown - dt);
+    if (zoneSuspicion < ZONE_INVESTIGATE_THRESHOLD || this.zoneCheckCooldown > 0) return;
+
+    let nearest: NpcAgent | null = null;
+    let nearestDistance = Infinity;
+    for (const agent of this.agents) {
+      if (!agent.isSecurity()) continue;
+      const distance = Vector3.Distance(agent.root.position, playerPosition);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = agent;
+      }
+    }
+    if (!nearest) return;
+
+    this.zoneCheckCooldown = ZONE_INVESTIGATE_COOLDOWN;
+    nearest.investigate(playerPosition, ZONE_INVESTIGATE_FLOOR);
+    this.showNetworkStatus("GÜVENLİK · YETKİSİZ BÖLGE KONTROLÜ", 1.8);
   }
 
   private updateSecurityNetwork(dt: number): void {

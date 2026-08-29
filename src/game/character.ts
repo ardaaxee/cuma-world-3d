@@ -12,6 +12,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import { consumeJumpPressed, CROUCH_SPEED_MULTIPLIER, isCrouched, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
+import { LANDING_NOISE_MIN_SPEED, reportPlayerLanding } from "./noise";
 
 export class PlayerCharacter {
   readonly collider: Mesh;
@@ -170,8 +171,10 @@ export class PlayerCharacter {
   }
 
   private onLanded(landingSpeed: number): void {
-    if (landingSpeed < 1.1) return;
-    const impact = Math.min(1, Math.max(0, (landingSpeed - 1.1) / 5.5));
+    if (landingSpeed < LANDING_NOISE_MIN_SPEED) return;
+    const position = this.collider.position;
+    reportPlayerLanding(position.x, position.y, position.z, landingSpeed);
+    const impact = Math.min(1, Math.max(0, (landingSpeed - LANDING_NOISE_MIN_SPEED) / 5.5));
     this.landingCameraKick = -0.035 - impact * 0.055;
     if (impact > 0.52) this.emitHaptic([18, 12, 24]);
     else this.emitHaptic([16]);
