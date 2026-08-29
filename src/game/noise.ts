@@ -12,7 +12,7 @@ import { isInCover } from "./cover";
  * per frame.
  */
 
-export type NoiseKind = "movement" | "landing" | "decoy";
+export type NoiseKind = "movement" | "landing" | "decoy" | "environment";
 
 export interface NoiseSample {
   /** Normalised loudness, 0 (silent) .. 1 (sprinting). */
@@ -72,6 +72,14 @@ const LANDING_CROUCH_SCALE = 0.62;
  */
 export const DECOY_NOISE_RADIUS = 13.5;
 export const DECOY_AWARENESS_FLOOR = 0.46;
+
+/**
+ * Worked doors and similar one-shot world interactions. Deliberately quieter
+ * and shorter-ranged than a decoy: a nearby guard may come and look, but the
+ * facility can never be raised by a door alone.
+ */
+export const DOOR_NOISE_LOUDNESS = 0.55;
+const ENVIRONMENT_RADIUS_SCALE = 0.8;
 
 const MAX_PENDING_IMPULSES = 8;
 
@@ -146,6 +154,16 @@ export function reportPlayerLanding(x: number, y: number, z: number, landingSpee
   let loudness = LANDING_LOUDNESS_MIN + impact * (LANDING_LOUDNESS_MAX - LANDING_LOUDNESS_MIN);
   if (isCrouched()) loudness *= LANDING_CROUCH_SCALE;
   pushImpulse(x, y, z, loudness, radiusFor(loudness) * LANDING_RADIUS_SCALE, "landing", false);
+}
+
+/**
+ * One-shot noise made by the world rather than the player's body — currently
+ * doors. Same queue, same pooling, no second noise subsystem.
+ */
+export function reportEnvironmentNoise(x: number, y: number, z: number, loudness: number): void {
+  const level = Math.max(0, Math.min(1, loudness));
+  if (level <= 0) return;
+  pushImpulse(x, y, z, level, radiusFor(level) * ENVIRONMENT_RADIUS_SCALE, "environment", false);
 }
 
 function pushImpulse(

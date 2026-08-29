@@ -28,7 +28,8 @@ export class SecurityCameraSystem {
     panelMaterial.roughness = 0.52;
     panelMaterial.metallic = 0.48;
     this.bypassPanel = MeshBuilder.CreateBox("cctv-bypass-panel", { width: 0.34, height: 0.52, depth: 0.12 }, scene);
-    this.bypassPanel.position = new Vector3(-6.88, 1.28, 5.5);
+    // Moved into the monitoring room: disabling CCTV now costs a RESTRICTED entry.
+    this.bypassPanel.position = new Vector3(-0.4, 1.28, 22.3);
     this.bypassPanel.material = panelMaterial;
     this.bypassPanel.checkCollisions = false;
 

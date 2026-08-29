@@ -38,6 +38,7 @@ export function resetMissionProgress(): void {
   }
   document.body.dataset.route = "none";
   document.body.dataset.operationStep = "none";
+  document.body.dataset.intel = "";
 }
 
 export class MissionDirector {
@@ -56,6 +57,7 @@ export class MissionDirector {
     this.normalizeOperationStep();
     this.syncRouteSignal();
     this.syncOperationSignal();
+    this.syncIntelSignal();
     window.addEventListener("cuma-operation-action", this.onOperationAction as EventListener);
   }
 
@@ -72,6 +74,7 @@ export class MissionDirector {
     if ((this.state === "BRIEFING" || this.state === "RECON") && this.requiredIntel.every((key) => this.intel.has(key))) {
       this.state = "PLANNING";
     }
+    this.syncIntelSignal();
     this.persist();
     return true;
   }
@@ -219,6 +222,11 @@ export class MissionDirector {
 
   private syncOperationSignal(): void {
     document.body.dataset.operationStep = this.operationStep ? this.operationStep.toLowerCase() : "none";
+  }
+
+  /** Publishes discovered intel so world affordances (doors) can react to it. */
+  private syncIntelSignal(): void {
+    document.body.dataset.intel = [...this.intel].join(",");
   }
 
   private normalizeOperationStep(): void {

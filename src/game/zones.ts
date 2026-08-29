@@ -1,3 +1,4 @@
+import { hasStaffCredential, refreshStaffCredential, resetStaffCredential, setStaffCredentialOverride } from "./access-state";
 import { isCrouched } from "./input";
 import { isInCover } from "./cover";
 
@@ -36,14 +37,18 @@ interface ZoneVolume {
  * `world-expansion.ts`.
  */
 const ZONE_VOLUMES: readonly ZoneVolume[] = [
-  // Dispatch desk, delivery record and manifest terminal.
-  { id: "RESTRICTED", label: "ARKA OFİS", minX: -7.2, maxX: 7.2, minY: -1.5, maxY: 5.2, minZ: 10.6, maxZ: 14.0 },
-  // Transition strip between the sales floor and the back office.
-  { id: "STAFF", label: "PERSONEL KORİDORU", minX: -7.2, maxX: 7.2, minY: -1.5, maxY: 5.2, minZ: 9.2, maxZ: 10.6 },
+  // Back-of-house records room holding the manifest terminal.
+  { id: "RESTRICTED", label: "ARKA OFİS", minX: -8.1, maxX: -1.0, minY: -1.5, maxY: 5.2, minZ: 17.3, maxZ: 22.7 },
+  // Monitoring room holding the CCTV control panel.
+  { id: "RESTRICTED", label: "GÜVENLİK ODASI", minX: -1.0, maxX: 5.4, minY: -1.5, maxY: 5.2, minZ: 17.3, maxZ: 22.7 },
+  // Narrow service nook linking the corridor to the service alley.
+  { id: "STAFF", label: "TESİSAT NİŞİ", minX: 5.4, maxX: 7.5, minY: -1.5, maxY: 5.2, minZ: 17.3, maxZ: 22.7 },
+  // Back-of-house spine.
+  { id: "STAFF", label: "PERSONEL KORİDORU", minX: -8.1, maxX: 7.4, minY: -1.5, maxY: 5.2, minZ: 14.0, maxZ: 17.3 },
+  // Delivery counter at the rear of the sales floor.
+  { id: "STAFF", label: "TESLİMAT BANKOSU", minX: -7.2, maxX: 7.2, minY: -1.5, maxY: 5.2, minZ: 9.5, maxZ: 14.0 },
   // Loading bay pad and service alley.
   { id: "STAFF", label: "YÜKLEME SAHASI", minX: 7.3, maxX: 13.1, minY: -1.5, maxY: 5.2, minZ: 5.8, maxZ: 20.6 },
-  // Staff access terminal alcove on the left wall.
-  { id: "STAFF", label: "ERİŞİM NİŞİ", minX: -7.2, maxX: -5.6, minY: -1.5, maxY: 5.2, minZ: 5.2, maxZ: 7.4 },
 ];
 
 const PUBLIC_LABEL = "SATIŞ ALANI";
@@ -76,15 +81,11 @@ export const ZONE_INVESTIGATE_THRESHOLD = 0.72;
 /** Kept below `DECOY_AWARENESS_FLOOR` so a decoy stays the stronger pull. */
 export const ZONE_INVESTIGATE_FLOOR = 0.32;
 
-const ACCESS_REFRESH_SECONDS = 0.5;
-
 let currentZone: ZoneId = "PUBLIC";
 let currentLabel = PUBLIC_LABEL;
 let suspicion = 0;
 let recoveryDelay = 0;
 let accessGranted = false;
-let accessOverride: boolean | null = null;
-let accessClock = 0;
 let publishedZone = "";
 
 const snapshot: { zone: ZoneId; label: string; suspicion: number; accessGranted: boolean } = {
@@ -113,20 +114,7 @@ export function classifyZone(x: number, y: number, z: number): ZoneId {
  * unlocks; passing `null` returns to deriving access from operation progress.
  */
 export function setZoneAccessGranted(granted: boolean | null): void {
-  accessOverride = granted;
-  accessClock = 0;
-}
-
-function refreshAccess(dt: number): void {
-  if (accessOverride !== null) {
-    accessGranted = accessOverride;
-    return;
-  }
-  accessClock -= dt;
-  if (accessClock > 0) return;
-  accessClock = ACCESS_REFRESH_SECONDS;
-  const step = document.body.dataset.operationStep ?? "none";
-  accessGranted = step === "manifest" || step === "verify" || step === "done";
+  setStaffCredentialOverride(granted);
 }
 
 function accessScale(zone: ZoneId): number {
@@ -142,7 +130,8 @@ function accessScale(zone: ZoneId): number {
  */
 export function updateZonePresence(dt: number, x: number, y: number, z: number, active: boolean): ZoneSnapshot {
   const step = Math.max(0, Math.min(0.25, dt));
-  refreshAccess(step);
+  refreshStaffCredential(step);
+  accessGranted = hasStaffCredential();
 
   const volume = resolveZone(x, y, z);
   currentZone = volume?.id ?? "PUBLIC";
@@ -182,9 +171,8 @@ export function getZoneSuspicion(): number {
 export function resetZonePresence(): void {
   suspicion = 0;
   recoveryDelay = 0;
-  accessOverride = null;
+  resetStaffCredential();
   accessGranted = false;
-  accessClock = 0;
   currentZone = "PUBLIC";
   currentLabel = PUBLIC_LABEL;
   publishedZone = "";

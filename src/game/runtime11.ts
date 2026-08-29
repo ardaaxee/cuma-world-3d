@@ -19,9 +19,10 @@ import { GameAudio } from "./audio";
 import { resolveThirdPersonCameraCollision } from "./camera-collision";
 import { PlayerCharacter } from "./character";
 import { type CoverState, getCoverState, releaseCover, setCoverPaused } from "./cover";
+import { doorPromptLabel, resetDoors, showDoorStatus, tryUseDoor, updateDoors } from "./doors";
 import { MobileInput, isJumpQueued, isRunHeld } from "./input";
 import { MissionDirector } from "./mission";
-import { reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
+import { DOOR_NOISE_LOUDNESS, reportEnvironmentNoise, reportPlayerMovement, resetPlayerNoise, samplePlayerNoise } from "./noise";
 import { NpcSystem, type AwarenessSnapshot } from "./npc";
 import { SecurityCameraSystem } from "./security";
 import { StealthSignalsHud } from "./stealth-signals";
@@ -52,7 +53,8 @@ const REDUCED_MOTION_CAMERA_SCALE = 0.4;
 type GameMetadata = {
   intelId?: string;
   label?: string;
-  interaction?: "route-main" | "route-side" | "objective" | "extract" | "camera-bypass";
+  interaction?: "route-main" | "route-side" | "objective" | "extract" | "camera-bypass" | "door";
+  doorId?: string;
 };
 
 export class GameRuntime {
@@ -84,6 +86,7 @@ export class GameRuntime {
   private shoulderSide = 1;
   private shoulderBlend = 1;
   private coverCameraBlend = 0;
+  private interactionLabel = "";
   private readonly coverMoveScratch = Vector3.Zero();
   private readonly cameraDistance = 4.15;
   private readonly shoulderOffset = 0.42;
@@ -142,6 +145,7 @@ export class GameRuntime {
     this.updateThirdPersonCamera(0, true);
     resetPlayerNoise();
     resetZonePresence();
+    resetDoors();
     this.applyGraphicsPreferences(this.graphicsPreferences);
     this.mission.acknowledgeBriefing();
     this.updateHud();
@@ -170,6 +174,7 @@ export class GameRuntime {
     if (paused) {
       resetPlayerNoise();
       this.stealthSignals.setHidden(true);
+      this.interactionLabel = "";
       this.interactionEl.classList.add("hidden");
       this.observationEl.classList.add("hidden");
     }
@@ -268,6 +273,8 @@ export class GameRuntime {
     reportPlayerMovement(playerPosition.x, playerPosition.y, playerPosition.z, horizontalSpeed, dt);
     const zone = updateZonePresence(dt, playerPosition.x, playerPosition.y, playerPosition.z, awarenessActive);
     this.stealthSignals.update(dt, samplePlayerNoise(), zone, awarenessActive);
+
+    updateDoors(dt);
 
     const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const cameraAwareness = this.securitySystem.update(dt, this.player.position, this.player.collider, awarenessActive);
@@ -391,10 +398,27 @@ export class GameRuntime {
     const hit = this.scene.pickWithRay(ray, (mesh) => Boolean((mesh.metadata as GameMetadata | null)?.interaction));
     const mesh = hit?.hit && hit.pickedMesh instanceof Mesh ? hit.pickedMesh : null;
     if (!mesh) {
-      this.interactionEl.classList.add("hidden");
+      this.setInteractionLabel("");
       return;
     }
     const meta = mesh.metadata as GameMetadata;
+
+    // Doors resolve through this same ray, so there is one owner and the
+    // nearest interactable always wins. Staged operation terminals keep their
+    // existing higher priority because they publish after this pass.
+    if (meta.interaction === "door" && meta.doorId) {
+      this.setInteractionLabel(doorPromptLabel(meta.doorId));
+      if (!interactPressed) return;
+      const result = tryUseDoor(meta.doorId);
+      showDoorStatus(result.message);
+      if (result.noiseAt) {
+        const at = result.noiseAt;
+        reportEnvironmentNoise(at.x, at.y, at.z, DOOR_NOISE_LOUDNESS);
+      }
+      if (result.changed && typeof navigator.vibrate === "function") navigator.vibrate(12);
+      return;
+    }
+
     const state = this.mission.snapshot();
     let label = "ETKİLEŞ";
     if (meta.interaction === "objective") label = "TESLİMAT KAYDINI DOĞRULA";
@@ -407,8 +431,7 @@ export class GameRuntime {
       else if (state.state !== "INFILTRATE" && state.state !== "EXTRACT") label = "CCTV FIRSATI HAZIR";
       else label = "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK";
     }
-    this.interactionEl.textContent = label;
-    this.interactionEl.classList.remove("hidden");
+    this.setInteractionLabel(label);
     if (!interactPressed) return;
 
     if (meta.interaction === "route-main") this.mission.chooseRoute("main");
@@ -424,6 +447,18 @@ export class GameRuntime {
         this.securitySystem.bypass();
       }
     }
+  }
+
+  /** Writes the prompt only when the text actually changes. */
+  private setInteractionLabel(label: string): void {
+    if (label === this.interactionLabel) return;
+    this.interactionLabel = label;
+    if (!label) {
+      this.interactionEl.classList.add("hidden");
+      return;
+    }
+    this.interactionEl.textContent = label;
+    this.interactionEl.classList.remove("hidden");
   }
 
   private updateAwarenessHud(snapshot: AwarenessSnapshot, active: boolean): void {
