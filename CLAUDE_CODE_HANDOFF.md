@@ -5,207 +5,136 @@ Do not modify: `main`
 Runtime: TypeScript + Babylon.js + Capacitor Android
 Authoritative gameplay runtime: `src/game/runtime11.ts`
 
-## Current verified gameplay baseline
+## Collaboration contract
 
-The Claude development branch was created from gameplay commit:
-`3ac21061bb877936600ddb550a00bd0c35e2bdd4`
+Read before editing:
+1. `CLAUDE.md`
+2. `CLAUDE_CODE_HANDOFF.md`
+3. `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`
+4. `docs/CLAUDE_007_STYLE_GUIDE.md`
+5. `docs/CLAUDE_NEXT_TASK.md` — the ONLY active implementation milestone
 
-That baseline includes:
-- mobile movement, RUN, JUMP, CROUCH
-- third-person shoulder camera
-- tactical cover
-- staged mission: ACCESS -> MANIFEST -> VERIFY -> EXTRACT
-- recon/intel
-- route choice
-- CCTV detection and bypass
-- SCAN / SIGNAL JAM / DECOY gadgets
-- NPC visual awareness
-- last-known-position investigation
-- coordinated security broadcasts/search
-- physical side/service route and loading area
-- graphics tiers and Android lifecycle handling
+The target is an original CUMA WORLD cinematic spy-thriller in the broad quality class of modern espionage games. Do not copy 007 First Light names, characters, story, dialogue, missions, UI, assets, animation, music, logos, source code or proprietary content.
 
-GitHub Actions run #128 (`33212850598`) for commit `3ac21061bb877936600ddb550a00bd0c35e2bdd4` completed successfully through TypeScript/Vite, Capacitor Android generation, Android 16 SDK, debug APK, Play AAB, hashes and artifact upload.
-
-Do not claim real-device behavior from this CI result.
-
-## Current Claude documentation layer
-
-Read these before every milestone:
-1. `CLAUDE.md` — repository/development contract
-2. `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md` — long roadmap
-3. `docs/CLAUDE_007_STYLE_GUIDE.md` — original cinematic spycraft design language
-4. `docs/CLAUDE_NEXT_TASK.md` — the ONLY active implementation milestone
-
-The style target is an original CUMA WORLD spy-thriller in the broad quality class of modern cinematic espionage games. Do not copy 007 First Light names, characters, story, dialogue, missions, UI, assets, animation, music, logos, source code or proprietary content.
-
-## Collaboration rules
-
-- Always re-read branch HEAD before editing.
-- Apply minimal compatible changes; never overwrite a new file from an old snapshot.
-- Reuse existing systems instead of creating duplicate mission/NPC/security/graphics/audio/HUD implementations.
-- One coherent gameplay milestone per commit.
-- Run `npm run build` before commit when environment allows.
-- Fix TypeScript/Vite errors before stopping.
-- After push, verify GitHub Actions for the exact new HEAD.
-- Never claim APK/AAB success until workflow completion.
-- Never claim device FPS, touch behavior, imported-character visual correctness or thermal performance without real-device evidence.
-- Update this handoff after each completed milestone.
+Rules:
+- always re-read branch HEAD before editing
+- apply minimal compatible changes on the latest files
+- reuse existing systems; do not create duplicate mission/NPC/security/cover/noise/graphics/audio/HUD implementations
+- one coherent gameplay milestone per implementation commit
+- run `npm run build` before commit when possible
+- fix TypeScript/Vite failures before stopping
+- verify GitHub Actions for the exact gameplay commit
+- never claim APK/AAB success until run/artifact evidence exists
+- never claim real-device behavior without real-device evidence
+- update this handoff after each completed milestone
 
 ## Current architecture ownership
 
-- `src/game/runtime11.ts`: production gameplay loop/camera/world integration
-- `src/game/input.ts`: mobile input, run/jump/crouch
+- `src/game/runtime11.ts`: production gameplay loop, camera, interaction/world integration
+- `src/game/input.ts`: mobile input, RUN/JUMP/CROUCH
 - `src/game/character.ts`: player collider/model/locomotion
-- `src/game/mission.ts`: mission rules/state
-- `src/game/npc.ts`: NPC awareness/patrol/investigation/security communication
-- `src/game/security.ts`: CCTV/security camera gameplay
-- `src/game/cover.ts`: tactical cover
+- `src/game/mission.ts`: mission rules/state/save
+- `src/game/npc.ts`: NPC awareness/patrol/hearing/investigation/security communication
+- `src/game/security.ts`: CCTV gameplay
+- `src/game/cover.ts`: directional tactical cover
+- `src/game/noise.ts`: authoritative player/environment gameplay noise
+- `src/game/zones.ts`: PUBLIC/STAFF/RESTRICTED access-zone suspicion
 - `src/game/gadgets.ts`: SCAN/JAM/DECOY
-- `src/game/operation-depth.ts`: staged operation terminals/progress
-- `src/game/world-expansion.ts`: physical service/loading route extension
+- `src/game/operation-depth.ts`: ACCESS/MANIFEST/VERIFY operation presentation/terminals
+- `src/game/world-expansion.ts`: physical service/loading world extension; extend this ownership for structural expansion rather than creating a second map
 - `src/game/visuals.ts`: visual/world polish owner
 - `src/game/graphics.ts`: graphics/performance profiles
 - `src/game/audio.ts`: gameplay audio
 - `src/game/debrief.ts`: mission result/replay flow
 
-Do not create parallel replacements unless a refactor is explicitly justified and preserves behavior.
+## Verified baseline before Claude milestones
+
+The Claude branch was created from gameplay commit `3ac21061bb877936600ddb550a00bd0c35e2bdd4`.
+That baseline already contained movement, RUN/JUMP/CROUCH, third-person shoulder camera, tactical cover, recon/intel, CCTV, SCAN/JAM/DECOY, coordinated security search, staged ACCESS -> MANIFEST -> VERIFY -> EXTRACT, service/loading side route, graphics tiers and Android lifecycle handling.
+
+Android workflow run `33212850598` was green through TypeScript/Vite, Android 16, APK, AAB, hashes and artifact upload for that baseline.
 
 ## Milestone 01 — Hearing + Social Stealth Foundation (verified)
 
-Gameplay implementation HEAD: `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
-Commit: `feat: add hearing and zone suspicion foundation`
-Handoff HEAD after recording: `f61bfec31cd09ca7f78d0f13c12de928fded8283`
+Gameplay commit: `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
+Commit message: `feat: add hearing and zone suspicion foundation`
+Workflow: `33244096862` — SUCCESS end-to-end including APK/AAB/artifact.
 
-Files added:
-- `src/game/noise.ts` — authoritative player noise model
-- `src/game/zones.ts` — PUBLIC / STAFF / RESTRICTED access-zone model
-- `src/game/stealth-signals.ts` — compact noise/zone HUD readout
-- `src/stealth-signals.css`
-
-Files changed:
-- `src/game/npc.ts` — hearing folded into existing awareness/investigation
-- `src/game/character.ts` — real landing feeds a noise burst
-- `src/game/runtime11.ts` — feeds noise/zone models and owns the new HUD
-
-Behaviour:
-- crouched movement is materially quieter than walking/running
-- NPC hearing works outside visual FOV and investigates sound origin
+Implemented:
+- authoritative movement/landing/decoy noise model
+- NPC hearing outside visual FOV using existing investigation/search
 - footsteps cannot directly force ALERT
-- DECOY remains stronger/more deliberate than ordinary movement noise
-- PUBLIC / STAFF / RESTRICTED zone pressure is reusable and recovers after leaving inappropriate areas
-- current zone is published through `document.body.dataset.zone`
+- DECOY remains stronger than incidental movement
+- PUBLIC / STAFF / RESTRICTED zone suspicion and recovery
+- reusable `setZoneAccessGranted()` credential hook
+- compact noise/zone HUD
 
-Reusable API:
-`classifyZone`, `getPlayerZone`, `getZoneSuspicion`, `setZoneAccessGranted`, `resetZonePresence`.
-
-Validation:
-- `npm run build` passed
-- workflow dispatch run `33244096862` completed SUCCESS for gameplay commit `74631edc4ca3f00ce94766c8450fc1c25eb78ee7`
-- TypeScript/Vite, native Android generation, Android 16 SDK, debug APK, Play AAB, SHA/build manifest and artifact upload all succeeded
-
-No real-device behavior is claimed from CI.
-
-## Requires real-device testing from Milestone 01
-
-- noise/zone HUD readability in landscape
-- hearing distances with touch movement
-- STAFF/RESTRICTED suspicion tuning near objectives
-- hearing occlusion-ray cost on MEDIUM/HIGH
-- background/resume noise reset
+Real-device checks still pending:
+- hearing-distance feel
+- zone-pressure tuning
+- HUD readability
+- hearing occlusion-ray cost
+- background/resume behavior
 
 ## Milestone 02 — Directional Cover + Camera Stealth Polish (verified)
 
-Gameplay implementation HEAD: `89352a2f2a8e941f848c6c3737d19578cfe91e85`
-Commit: `feat: refine directional cover and stealth camera`
+Gameplay commit: `89352a2f2a8e941f848c6c3737d19578cfe91e85`
+Commit message: `feat: refine directional cover and stealth camera`
+Verified handoff commit: `3778f22912c287a1071b66353f4740f809cac567`
+Workflow run: `33244796378` (#130) — SUCCESS end-to-end.
 
-Files changed (no new module; the existing cover system was extended in place):
-- `src/game/cover.ts` — directional surface tracking and the protection API
-- `src/game/npc.ts` — per-guard directional cover instead of a global multiplier
-- `src/game/security.ts` — same for CCTV
-- `src/game/runtime11.ts` — cover-guided movement and cover-aware shoulder camera
-- `src/game/input.ts` — non-consuming jump peek so cover can exit first
-- `src/cover.css` — exposed-state styling
+Artifact:
+- `CUMA-WORLD-Android-Play-Build`
+- size: `23689464` bytes
+- sha256: `804378bd1e25cbf4ec2cd6fed4c32b1ec2c121fd30eef65bd05b3500a5189351`
 
-Behaviour:
-- Cover keeps a real dominant surface: geometric normal oriented surface -> player,
-  the tangent along it, distance, and live contact.
-- Surfaces tilted more than 45 degrees are rejected, so floors, the plaza slab
-  and 30 cm curbs can never become cover.
-- The contact probe sits at world ~0.70 so service-route crates (tops 0.90-1.32)
-  register at all; a probe at world ~1.45 separates crate-height from full-height
-  cover. Shelves and market walls read as full-height cover.
-- Cover drops the instant the tracking probe misses, which is what makes walking
-  past an edge lose protection.
-- `coverProtection(observer)` scores how far an observer sits behind the surface:
-  1 directly behind, ~0.13 side-on, 0 from the open side. Standing behind
-  crate-height cover keeps only 35%; crouching restores it.
-- NPC and CCTV awareness both consume this per observer. The old global 0.56 /
-  0.52 multipliers are gone. Best case is 0.38x detection; an exposed player is
-  detected exactly as if they had no cover.
-- Movement is decomposed onto tangent/normal: along-surface preserved exactly,
-  into-surface damped to 0.15, away-from-surface only to 0.85. Guided, not a rail.
-- RUN or a queued JUMP releases cover before that movement is applied.
-- Shoulder side follows the open side implied by the cover normal, behind a dead
-  zone and an exponential blend. Reduced Motion slows the blends and cuts the
-  camera pull-in to 40%. The existing camera collision resolver is untouched.
-- Status distinguishes SİPER HAZIR / KORUNUYOR / AÇIKTA plus a ÇÖMEL hint, with
-  no new panel and no new permanent button.
+Implemented:
+- real cover surface normal/tangent/distance/contact state
+- low vs full-height cover
+- observer-specific `coverProtection()` / detection scaling for NPC + CCTV
+- exposed edge/open side loses protection
+- cover-guided movement without sticky rail
+- RUN/JUMP clean cover exit
+- cover-aware smooth shoulder camera with Reduced Motion behavior
+- cover probing/DOM performance improvements
 
-Reusable API:
-`getCoverState`, `coverProtection`, `coverDetectionScale`, `releaseCover`,
-`setCoverPaused`, `isInCover`, `isCoverReady`, `COVER_MAX_DETECTION_REDUCTION`.
+Real-device checks still pending:
+- shoulder swap feel
+- joystick versus cover guidance
+- crate-height cover discoverability
+- camera clipping around loading bay
+- real multitouch RUN/JUMP exits
+- Reduced Motion feel
+- LOW/MEDIUM probe cost
 
-Performance:
-- The old tick rebuilt 8 direction vectors and 8 Rays and wrote the DOM every
-  frame. Directions and the Ray are now module constants and the tick allocates
-  nothing.
-- Probing runs at 15 Hz while searching and 30 Hz while attached, replacing
-  8 raycasts every frame with 8 at 15 Hz (searching) or 2 at 30 Hz (attached).
-- DOM writes only when the displayed state changes.
-- Cover raycasts stop entirely while paused; the ray filter is rebuilt only when
-  the player collider changes rather than captured once at startup.
+Important CI note: the job-step endpoint showed a stale in-progress snapshot for roughly 50 minutes after run `33244796378` had already completed. For disputed final status, prefer the workflow run status plus artifact/job log evidence.
 
-Milestone 01 systems verified untouched: noise model, NPC hearing, landing
-impulses, zones, zone suspicion/recovery, DECOY priority, stealth signals HUD.
-Because RUN now exits cover first, a sprint is heard at full loudness.
+## ACTIVE MILESTONE 03 — Connected Back Office + Door / Access Depth
 
-Validation:
-- `npm run build` passed locally; boot chunk unchanged at 35087 bytes
-- Android workflow dispatch run `33244796378` (run #130) for gameplay commit
-  `89352a2f2a8e941f848c6c3737d19578cfe91e85`
+Documentation HEAD that activates this task includes `docs/CLAUDE_NEXT_TASK.md` commit `2b78f0682ab7f7f53eeffa13d8bd6bbb9dfac8be`.
 
-  Completed SUCCESS in 2m38s (09:08:48 -> 09:11:27) through TypeScript/Vite,
-  native Capacitor Android generation, Android 16 SDK, debug APK, Play AAB,
-  SHA/build manifest and artifact upload.
+Implement ONLY `docs/CLAUDE_NEXT_TASK.md`.
 
-  Artifact `CUMA-WORLD-Android-Play-Build`, 23689464 bytes,
-  sha256 `804378bd1e25cbf4ec2cd6fed4c32b1ec2c121fd30eef65bd05b3500a5189351`.
+High-level goals:
+- expand the existing facility into a connected STAFF corridor, back office/records room, security room, utility/service connection and stock/loading connection
+- make front and side approaches physically reconnect through the internal network
+- add ONE reusable fictional Door / Access system with truthful OPEN/CLOSED and LOCKED/UNLOCKED collision states
+- integrate door interactions into the existing mobile interaction flow without a new permanent button or prompt conflicts
+- make door use feed the existing authoritative hearing/noise model where appropriate
+- turn ACCESS completion into a real temporary STAFF credential that unlocks appropriate staff doors and reduces STAFF-zone pressure without authorizing RESTRICTED rooms
+- add at least one intel-driven physical traversal opportunity
+- reposition/integrate ACCESS/MANIFEST/VERIFY targets so the operation chain requires meaningful traversal through the expanded topology
+- extend the existing `ZONE_VOLUMES`; do not create another zone system
+- preserve Milestone 01 hearing/zones and Milestone 02 directional cover/camera
+- keep old saves safe with defaults/migration
+- keep mobile performance and bundle gates green
 
-  Note for whoever re-checks: this workflow's job-step API responses cache
-  heavily and reported step 12 as still running for ~50 minutes after the run
-  had actually finished. Confirm the real outcome from the run artifact and the
-  job log, not from the step list.
+Do not add real-world lock bypass/hacking/security intrusion instructions. Access mechanics are fictional game abstractions only.
 
-No real-device behavior is claimed from CI.
-
-## Requires real-device testing from Milestone 02
-
-- whether the shoulder swap reads as intentional or busy while moving in cover
-- whether cover guidance fights the joystick on a touch screen
-- whether crate-height cover and the ÇÖMEL hint are discoverable
-- camera clipping around the loading-bay crates and bay edge
-- RUN/JUMP cover exits under real multitouch (joystick + look + action together)
-- Reduced Motion camera feel
-- cover probe cost on LOW/MEDIUM
-
-## Planned Milestone 03 after Milestone 02 is verified
-
-ChatGPT will prepare the next prompt for world/access depth, expected to include:
-- physical back-office/security/utility expansion
-- reusable interactive door/access-state system
-- credential/intel-driven access opportunities
-- social-stealth use of PUBLIC/STAFF/RESTRICTED zones
-- at least one additional physical route/loop with gameplay purpose
-
-Do not start Milestone 03 early.
+After implementation:
+- `npm run build`
+- one coherent gameplay commit (suggested: `feat: expand back office and access routes`)
+- dispatch Android workflow for the exact gameplay commit
+- verify final status using run/artifact evidence when needed
+- update this handoff with gameplay commit, changed files, door/access API, topology, credential behavior, CI result and remaining device checks
+- STOP; do not start Milestone 04.
