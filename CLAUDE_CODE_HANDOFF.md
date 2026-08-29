@@ -114,7 +114,7 @@ No real-device behavior is claimed from CI.
 - hearing occlusion-ray cost on MEDIUM/HIGH
 - background/resume noise reset
 
-## Milestone 02 — Directional Cover + Camera Stealth Polish (implemented)
+## Milestone 02 — Directional Cover + Camera Stealth Polish (verified)
 
 Gameplay implementation HEAD: `89352a2f2a8e941f848c6c3737d19578cfe91e85`
 Commit: `feat: refine directional cover and stealth camera`
@@ -175,22 +175,17 @@ Validation:
 - Android workflow dispatch run `33244796378` (run #130) for gameplay commit
   `89352a2f2a8e941f848c6c3737d19578cfe91e85`
 
-  Verified green on that run: character packaging, audio detection, npm install,
-  **Typecheck and build game runtime**, native Capacitor Android generation,
-  Android toolchain, Android 16 SDK packages (steps 1-11).
+  Completed SUCCESS in 2m38s (09:08:48 -> 09:11:27) through TypeScript/Vite,
+  native Capacitor Android generation, Android 16 SDK, debug APK, Play AAB,
+  SHA/build manifest and artifact upload.
 
-  NOT VERIFIED: step 12 `Build test APK and Play App Bundle` and everything
-  after it. The step was still reported in progress roughly 50 minutes after it
-  started, against a workflow `timeout-minutes: 35`, with no artifact and no
-  downloadable job log. The Milestone 01 run of the same workflow finished in
-  2m24s, so this is a runner/Gradle stall rather than a code signal, but APK and
-  AAB success is explicitly NOT claimed for Milestone 02. Re-dispatch the
-  workflow to obtain a clean APK/AAB result before treating this milestone as
-  fully CI-verified.
+  Artifact `CUMA-WORLD-Android-Play-Build`, 23689464 bytes,
+  sha256 `804378bd1e25cbf4ec2cd6fed4c32b1ec2c121fd30eef65bd05b3500a5189351`.
 
-  Note for whoever re-checks: this workflow's job-step API responses cached
-  heavily during both milestones. Confirm the real outcome from the run
-  artifact and job log, not from the step list.
+  Note for whoever re-checks: this workflow's job-step API responses cache
+  heavily and reported step 12 as still running for ~50 minutes after the run
+  had actually finished. Confirm the real outcome from the run artifact and the
+  job log, not from the step list.
 
 No real-device behavior is claimed from CI.
 
