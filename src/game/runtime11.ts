@@ -302,7 +302,7 @@ export class GameRuntime {
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
     if (horizontalSpeed > 0.08) this.player.setFacing(Math.atan2(this.velocity.x, this.velocity.z), dt);
-    this.player.update(horizontalSpeed, dt, this.graphicsPreferences.reducedMotion);
+    this.player.update(horizontalSpeed, dt, this.graphicsPreferences.reducedMotion, isInCover());
     this.audio.updateFootsteps(horizontalSpeed, dt);
 
     this.running = strength > 0.86;

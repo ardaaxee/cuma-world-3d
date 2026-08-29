@@ -32,7 +32,10 @@ Rules:
 
 - `src/game/runtime11.ts`: production gameplay loop, camera, interaction/world integration
 - `src/game/input.ts`: mobile input, RUN/JUMP/CROUCH
-- `src/game/character.ts`: player collider/model/locomotion
+- `src/game/character.ts`: player collider/model/locomotion, GLB import and procedural fallback
+- `src/game/character-animation.ts`: canonical animation-state contract and clip-name resolver
+- `src/game/character-blender.ts`: animation-group crossfade
+- `src/game/character-face.ts`: optional facial-life (blink/gaze) layer
 - `src/game/mission.ts`: mission rules/state/save
 - `src/game/npc.ts`: NPC awareness/patrol/hearing/investigation/security communication
 - `src/game/security.ts`: CCTV gameplay

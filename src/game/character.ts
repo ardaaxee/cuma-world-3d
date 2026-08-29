@@ -1,4 +1,5 @@
 import {
+  type AbstractMesh,
   AnimationGroup,
   Color3,
   Mesh,
@@ -11,8 +12,20 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import { type CharacterAnimationState, hasRequiredStates, resolveAnimationGroups } from "./character-animation";
+import { AnimationBlender } from "./character-blender";
+import { FacialLifeLayer } from "./character-face";
 import { consumeJumpPressed, CROUCH_SPEED_MULTIPLIER, isCrouched, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
 import { LANDING_NOISE_MIN_SPEED, reportPlayerLanding } from "./noise";
+
+/** How long the take-off clip owns the pose before airborne takes over. */
+const JUMP_START_SECONDS = 0.22;
+/** How long the landing clip plays before normal locomotion resumes. */
+const LANDING_ANIM_SECONDS = 0.28;
+/** Below this the character is treated as standing still. */
+const MOVING_SPEED = 0.25;
+/** Matches the scene's own PBR materials so the hero sits in the same light. */
+const CHARACTER_ENVIRONMENT_INTENSITY = 0.72;
 
 export class PlayerCharacter {
   readonly collider: Mesh;
@@ -20,8 +33,10 @@ export class PlayerCharacter {
   readonly cameraTarget: TransformNode;
   private readonly proceduralParts: Mesh[] = [];
   private readonly importedMeshes: Mesh[] = [];
-  private readonly importedAnimations = new Map<"idle" | "walk" | "run", AnimationGroup>();
-  private currentAnimation: "" | "idle" | "walk" | "run" = "";
+  private readonly animation = new AnimationBlender();
+  private readonly face = new FacialLifeLayer();
+  private jumpAnimTimer = 0;
+  private landingAnimTimer = 0;
   private imported = false;
   private speed = 0;
   private stride = 0;
@@ -80,8 +95,10 @@ export class PlayerCharacter {
     this.visualRoot.rotation.y = current + delta * (1 - Math.exp(-13 * dt));
   }
 
-  update(speed: number, dt: number, reducedMotion: boolean): void {
+  update(speed: number, dt: number, reducedMotion: boolean, inCover = false): void {
     this.applyJump(dt);
+    this.jumpAnimTimer = Math.max(0, this.jumpAnimTimer - dt);
+    this.landingAnimTimer = Math.max(0, this.landingAnimTimer - dt);
     this.landingCameraKick += (0 - this.landingCameraKick) * (1 - Math.exp(-15 * dt));
     const crouched = isCrouched();
     const baseCameraHeight = crouched ? 0.34 : 0.62;
@@ -96,7 +113,9 @@ export class PlayerCharacter {
     this.speed += (effectiveSpeed - this.speed) * (1 - Math.exp(-10 * dt));
     this.syncShadowCasters(dt);
     if (this.imported) {
-      this.updateImportedAnimation(this.speed, sprinting);
+      this.animation.play(this.resolveState(this.speed, sprinting, crouched, inCover));
+      this.animation.update(dt);
+      this.face.update(dt, reducedMotion);
       return;
     }
 
@@ -154,6 +173,8 @@ export class PlayerCharacter {
       this.verticalVelocity = 5.35;
       this.grounded = false;
       this.groundGrace = 0;
+      // Presentation only — the jump arc above is unchanged by animation state.
+      this.jumpAnimTimer = JUMP_START_SECONDS;
       this.emitHaptic([14]);
     }
 
@@ -171,6 +192,9 @@ export class PlayerCharacter {
   }
 
   private onLanded(landingSpeed: number): void {
+    // Every touchdown gets the landing pose; only loud ones make noise.
+    this.jumpAnimTimer = 0;
+    this.landingAnimTimer = LANDING_ANIM_SECONDS;
     if (landingSpeed < LANDING_NOISE_MIN_SPEED) return;
     const position = this.collider.position;
     reportPlayerLanding(position.x, position.y, position.z, landingSpeed);
@@ -194,52 +218,114 @@ export class PlayerCharacter {
     return Boolean(hit?.hit && hit.distance <= 0.94);
   }
 
+  /**
+   * Swaps in the authored hero when one is packaged. The procedural fallback is
+   * only switched off once the import has fully succeeded, so any failure — a
+   * missing file, a corrupt GLB, a rig without the required clips — leaves the
+   * player looking at a working character rather than nothing at all.
+   */
   private async tryLoadRuntimeModel(): Promise<void> {
     if (import.meta.env.VITE_CUMA_MODEL_PACKAGED !== "true") return;
+    // Held outside the try so a failure part-way through can still clean up
+    // everything the loader put into the scene.
+    let loadedMeshes: readonly AbstractMesh[] = [];
+    let loadedGroups: readonly AnimationGroup[] = [];
     try {
       await import("@babylonjs/loaders/glTF");
       const result = await SceneLoader.ImportMeshAsync("", "./assets/characters/", "cuma_runtime.glb", this.scene);
+      loadedMeshes = result.meshes;
+      loadedGroups = result.animationGroups;
+
+      // The glTF loader auto-plays the first group; take ownership of all of
+      // them before deciding what should actually be running.
+      for (const group of loadedGroups) group.stop();
+
       const root = result.meshes[0];
-      if (!root) return;
-      for (const part of this.proceduralParts) part.setEnabled(false);
-      for (const mesh of result.meshes) {
-        if (mesh.parent === null) mesh.parent = this.visualRoot;
-        mesh.isPickable = false;
-        if (mesh instanceof Mesh) {
-          mesh.receiveShadows = true;
-          this.importedMeshes.push(mesh);
-        }
+      if (!root) throw new Error("character GLB contained no meshes");
+
+      const resolved = resolveAnimationGroups(loadedGroups);
+      if (!hasRequiredStates(resolved)) {
+        throw new Error(`character GLB is missing required animation states: ${loadedGroups.map((group) => group.name).join(",")}`);
       }
+
+      this.adoptImportedMeshes(loadedMeshes);
       root.scaling = new Vector3(1, 1, 1);
       root.position = Vector3.Zero();
-      for (const group of result.animationGroups) {
-        if (/idle/i.test(group.name) && !this.importedAnimations.has("idle")) this.importedAnimations.set("idle", group);
-        else if (/run|sprint/i.test(group.name) && !this.importedAnimations.has("run")) this.importedAnimations.set("run", group);
-        else if (/walk|locomotion/i.test(group.name) && !this.importedAnimations.has("walk")) this.importedAnimations.set("walk", group);
-      }
+      this.animation.setGroups(resolved);
+      this.face.attach(loadedMeshes);
+
+      for (const part of this.proceduralParts) part.setEnabled(false);
       this.imported = true;
       this.shadowRefreshClock = 0;
-      this.playImportedAnimation("idle");
+      this.animation.play("idle");
     } catch {
-      this.imported = false;
-      this.importedMeshes.length = 0;
+      this.discardImportedModel(loadedMeshes, loadedGroups);
     }
   }
 
-  private updateImportedAnimation(speed: number, sprinting: boolean): void {
-    const requested: "idle" | "walk" | "run" = speed < 0.25 ? "idle" : sprinting ? "run" : "walk";
-    this.playImportedAnimation(requested);
+  private adoptImportedMeshes(meshes: readonly AbstractMesh[]): void {
+    for (const mesh of meshes) {
+      if (mesh.parent === null) mesh.parent = this.visualRoot;
+      mesh.isPickable = false;
+      this.harmonizeMaterial(mesh);
+      if (mesh instanceof Mesh) {
+        mesh.receiveShadows = true;
+        this.importedMeshes.push(mesh);
+      }
+    }
   }
 
-  private playImportedAnimation(name: "idle" | "walk" | "run"): void {
-    if (this.currentAnimation === name) return;
-    const group = this.importedAnimations.get(name) ?? (name === "run" ? this.importedAnimations.get("walk") : undefined) ?? this.importedAnimations.get("idle");
-    if (!group) return;
-    for (const animation of this.importedAnimations.values()) {
-      if (animation !== group && animation.isPlaying) animation.stop();
+  /**
+   * Imported glTF materials arrive at full environment intensity, which makes
+   * the hero read brighter than the world around them. Nothing else about the
+   * authored material is touched.
+   */
+  private harmonizeMaterial(mesh: AbstractMesh): void {
+    if (mesh.material instanceof PBRMaterial) {
+      mesh.material.environmentIntensity = CHARACTER_ENVIRONMENT_INTENSITY;
     }
-    if (!group.isPlaying) group.start(true, name === "run" ? 1.08 : 1.0);
-    this.currentAnimation = name;
+  }
+
+  /**
+   * Full rollback to the procedural fallback after a failed or partial import.
+   * Takes what the loader produced rather than only what was adopted, so a
+   * failure before adoption cannot strand meshes in the scene.
+   */
+  private discardImportedModel(
+    loadedMeshes: readonly AbstractMesh[],
+    loadedGroups: readonly AnimationGroup[],
+  ): void {
+    this.imported = false;
+    this.face.reset();
+    this.animation.clear();
+    for (const group of loadedGroups) {
+      group.stop();
+      group.dispose();
+    }
+    for (const mesh of loadedMeshes) {
+      if (!mesh.isDisposed()) mesh.dispose();
+    }
+    this.importedMeshes.length = 0;
+    for (const part of this.proceduralParts) part.setEnabled(true);
+  }
+
+  /**
+   * Picks the locomotion state from physics and input only. Nothing here writes
+   * back, so animation can never change how the character moves or collides.
+   */
+  private resolveState(
+    speed: number,
+    sprinting: boolean,
+    crouched: boolean,
+    inCover: boolean,
+  ): CharacterAnimationState {
+    const moving = speed >= MOVING_SPEED;
+    if (!this.grounded) return this.jumpAnimTimer > 0 ? "jump_start" : "airborne";
+    if (this.landingAnimTimer > 0) return "landing";
+    if (inCover) return moving ? "cover_locomotion" : "cover_idle";
+    if (crouched) return moving ? "crouch_walk" : "crouch_idle";
+    if (!moving) return "idle";
+    return sprinting ? "run" : "walk";
   }
 
   private syncShadowCasters(dt: number): void {

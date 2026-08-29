@@ -129,6 +129,9 @@ jobs:
           grep -q 'ui-audio-feedback' src/main.ts
           grep -q 'freezeWorldMatrix' src/game/visuals.ts
           grep -q 'VITE_CUMA_MODEL_PACKAGED' src/game/character.ts
+          grep -q 'resolveAnimationGroups' src/game/character.ts
+          grep -q 'CharacterAnimationState' src/game/character-animation.ts
+          grep -q 'setWeightForAllAnimatables' src/game/character-blender.ts
           grep -q 'codeSplitting' vite.config.ts
           grep -q 'babylon-runtime' vite.config.ts
           grep -q 'sensorLandscape' .github/workflows/android-play-runtime.yml
@@ -138,6 +141,7 @@ jobs:
             test -d dist/assets/audio
           fi
           python3 ci/measure_android_web_bundle.py
+          node ci/test_character_runtime.mjs
 
       - name: Create native Android project
         shell: bash
