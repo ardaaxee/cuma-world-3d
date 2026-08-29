@@ -114,29 +114,95 @@ No real-device behavior is claimed from CI.
 - hearing occlusion-ray cost on MEDIUM/HIGH
 - background/resume noise reset
 
-## Active Milestone 02 — Directional Cover + Camera Stealth Polish
+## Milestone 02 — Directional Cover + Camera Stealth Polish (implemented)
 
-The only active implementation task is now `docs/CLAUDE_NEXT_TASK.md`.
+Gameplay implementation HEAD: `89352a2f2a8e941f848c6c3737d19578cfe91e85`
+Commit: `feat: refine directional cover and stealth camera`
 
-Milestone 02 must refine the existing cover system rather than replace it:
-- retain dominant cover surface normal/tangent
-- make cover protection directional and based on real exposure/occlusion
-- remove broad global stealth benefit when the player is actually exposed
-- constrain cover movement naturally along the surface without a sticky rail
-- RUN/JUMP must exit cover cleanly
-- adapt the third-person shoulder camera to cover/open side while preserving camera collision
-- keep compact protected/exposed feedback
-- preserve Milestone 01 hearing and zone suspicion
+Files changed (no new module; the existing cover system was extended in place):
+- `src/game/cover.ts` — directional surface tracking and the protection API
+- `src/game/npc.ts` — per-guard directional cover instead of a global multiplier
+- `src/game/security.ts` — same for CCTV
+- `src/game/runtime11.ts` — cover-guided movement and cover-aware shoulder camera
+- `src/game/input.ts` — non-consuming jump peek so cover can exit first
+- `src/cover.css` — exposed-state styling
 
-Do not add another permanent action button.
-Do not create a second movement, camera or visibility system.
+Behaviour:
+- Cover keeps a real dominant surface: geometric normal oriented surface -> player,
+  the tangent along it, distance, and live contact.
+- Surfaces tilted more than 45 degrees are rejected, so floors, the plaza slab
+  and 30 cm curbs can never become cover.
+- The contact probe sits at world ~0.70 so service-route crates (tops 0.90-1.32)
+  register at all; a probe at world ~1.45 separates crate-height from full-height
+  cover. Shelves and market walls read as full-height cover.
+- Cover drops the instant the tracking probe misses, which is what makes walking
+  past an edge lose protection.
+- `coverProtection(observer)` scores how far an observer sits behind the surface:
+  1 directly behind, ~0.13 side-on, 0 from the open side. Standing behind
+  crate-height cover keeps only 35%; crouching restores it.
+- NPC and CCTV awareness both consume this per observer. The old global 0.56 /
+  0.52 multipliers are gone. Best case is 0.38x detection; an exposed player is
+  detected exactly as if they had no cover.
+- Movement is decomposed onto tangent/normal: along-surface preserved exactly,
+  into-surface damped to 0.15, away-from-surface only to 0.85. Guided, not a rail.
+- RUN or a queued JUMP releases cover before that movement is applied.
+- Shoulder side follows the open side implied by the cover normal, behind a dead
+  zone and an exponential blend. Reduced Motion slows the blends and cuts the
+  camera pull-in to 40%. The existing camera collision resolver is untouched.
+- Status distinguishes SİPER HAZIR / KORUNUYOR / AÇIKTA plus a ÇÖMEL hint, with
+  no new panel and no new permanent button.
 
-Validation requirements:
-- `npm run build`
-- focused commit
-- manually dispatch Android workflow against `claude/full-game-development` if necessary
-- verify exact run for the gameplay commit
-- stop after Milestone 02 and report before starting anything else
+Reusable API:
+`getCoverState`, `coverProtection`, `coverDetectionScale`, `releaseCover`,
+`setCoverPaused`, `isInCover`, `isCoverReady`, `COVER_MAX_DETECTION_REDUCTION`.
+
+Performance:
+- The old tick rebuilt 8 direction vectors and 8 Rays and wrote the DOM every
+  frame. Directions and the Ray are now module constants and the tick allocates
+  nothing.
+- Probing runs at 15 Hz while searching and 30 Hz while attached, replacing
+  8 raycasts every frame with 8 at 15 Hz (searching) or 2 at 30 Hz (attached).
+- DOM writes only when the displayed state changes.
+- Cover raycasts stop entirely while paused; the ray filter is rebuilt only when
+  the player collider changes rather than captured once at startup.
+
+Milestone 01 systems verified untouched: noise model, NPC hearing, landing
+impulses, zones, zone suspicion/recovery, DECOY priority, stealth signals HUD.
+Because RUN now exits cover first, a sprint is heard at full loudness.
+
+Validation:
+- `npm run build` passed locally; boot chunk unchanged at 35087 bytes
+- Android workflow dispatch run `33244796378` (run #130) for gameplay commit
+  `89352a2f2a8e941f848c6c3737d19578cfe91e85`
+
+  Verified green on that run: character packaging, audio detection, npm install,
+  **Typecheck and build game runtime**, native Capacitor Android generation,
+  Android toolchain, Android 16 SDK packages (steps 1-11).
+
+  NOT VERIFIED: step 12 `Build test APK and Play App Bundle` and everything
+  after it. The step was still reported in progress roughly 50 minutes after it
+  started, against a workflow `timeout-minutes: 35`, with no artifact and no
+  downloadable job log. The Milestone 01 run of the same workflow finished in
+  2m24s, so this is a runner/Gradle stall rather than a code signal, but APK and
+  AAB success is explicitly NOT claimed for Milestone 02. Re-dispatch the
+  workflow to obtain a clean APK/AAB result before treating this milestone as
+  fully CI-verified.
+
+  Note for whoever re-checks: this workflow's job-step API responses cached
+  heavily during both milestones. Confirm the real outcome from the run
+  artifact and job log, not from the step list.
+
+No real-device behavior is claimed from CI.
+
+## Requires real-device testing from Milestone 02
+
+- whether the shoulder swap reads as intentional or busy while moving in cover
+- whether cover guidance fights the joystick on a touch screen
+- whether crate-height cover and the ÇÖMEL hint are discoverable
+- camera clipping around the loading-bay crates and bay edge
+- RUN/JUMP cover exits under real multitouch (joystick + look + action together)
+- Reduced Motion camera feel
+- cover probe cost on LOW/MEDIUM
 
 ## Planned Milestone 03 after Milestone 02 is verified
 
