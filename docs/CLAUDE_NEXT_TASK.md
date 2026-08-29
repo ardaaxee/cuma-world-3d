@@ -1,395 +1,433 @@
-# CLAUDE NEXT TASK — Milestone 05: Mission Graph + Opportunities + NPC Routines + Replay Depth
+# CLAUDE NEXT TASK — Priority Character Milestone: Realistic Hero Character Pipeline
 
-Read `CLAUDE.md`, `CLAUDE_CODE_HANDOFF.md`, `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`, and `docs/CLAUDE_007_STYLE_GUIDE.md` before editing.
+Read `CLAUDE.md`, `CLAUDE_CODE_HANDOFF.md`, `docs/CLAUDE_FULL_GAME_MASTER_PLAN.md`, `docs/CLAUDE_007_STYLE_GUIDE.md`, and `docs/QUEUED_CHARACTER_REALISM.md` before editing.
 
 Work ONLY on branch `claude/full-game-development`.
 Do not modify `main`.
 Do not create a PR.
 
-Current verified gameplay implementation before this milestone:
+## Priority override
+
+The previously prepared Milestone 05 mission-graph task is PAUSED, not cancelled. Do not implement it in this commit.
+The user has explicitly reprioritized character realism. This file is now the ONLY active implementation task.
+
+Current verified gameplay baseline before this character milestone:
 `6925ae171f0cff3aae1373a9c1149465db7a4a62`
 
-Milestone 04 is verified by Android workflow run `33246717365` (#132), completed SUCCESS through TypeScript/Vite, Android 16, debug APK, Play AAB, hashes and artifact upload.
+Milestone 04 is verified by Android workflow run `33246717365` (#132), including TypeScript/Vite, Android 16, debug APK, Play AAB, hashes and artifact upload.
 
-## Goal
+Current character runtime already loads `./assets/characters/cuma_runtime.glb` through `src/game/character.ts`, keeps the capsule collider authoritative, and recognizes imported idle/walk/run clips. Extend this path; do not create a second player controller.
 
-Make the operation genuinely replayable instead of a single hard-coded sequence that always resolves the same way.
+Current Android workflow character packaging behavior:
+- first prefers an archive-provided `assets/characters/cuma_high.glb` or `cuma.glb`
+- otherwise falls back to a pinned CC0 MakeHuman / MPFB `suited.glb`
+- current fallback size is 6,675,064 bytes
+- current validator only guarantees GLB v2, mesh, skin, and idle/walk/run animation groups
 
-Preserve the readable high-level mission flow:
-
-`BRIEFING -> RECON -> PLANNING -> INFILTRATE -> EXTRACT -> COMPLETE`
-
-and preserve the required operation order:
-
-`ACCESS -> MANIFEST -> VERIFY -> EXTRACT`
-
-but turn the stages into a small reusable mission graph where a required stage may have more than one valid resolution, optional objectives add risk/reward, discovered intel changes available solutions, NPC routines vary between runs, and the debrief can explain how the player solved the mission.
-
-This is an original CUMA WORLD cinematic spycraft system. Do not copy another game's missions, dialogue, UI, characters, proprietary systems or assets.
-
-No combat or weapon work belongs in this milestone.
+This milestone must raise both the ART QUALITY CONTRACT and the RUNTIME/VALIDATION CONTRACT.
 
 ---
 
-# Part A — Data-driven mission graph
+# Goal
 
-Inspect `src/game/mission.ts`, `src/game/operation-depth.ts`, `src/game/runtime11.ts`, `src/game/debrief.ts`, `src/game/world-expansion.ts`, `src/game/doors.ts`, `src/game/npc.ts`, and the Milestone 04 facility/security APIs before editing.
+Upgrade CUMA WORLD from a procedural/placeholder-looking hero to an original, believable adult human field operative suitable for a cinematic contemporary spy-thriller, while preserving Babylon.js + Capacitor Android performance.
 
-`mission.ts` currently hard-codes stage transitions with direct `if` branches and has only one general mission opportunity (`camera_bypass`). Refactor this minimally into ONE reusable graph/stage model.
+Target production path:
 
-A mission node/stage should be able to describe at minimum:
-- id
-- required vs optional
-- prerequisites
-- one or more valid resolution ids / methods
-- whether it blocks extraction
-- score contribution
-- optional route/intel requirements for a resolution
+`licensed anatomy reference -> sculpt/model -> retopology -> UV/PBR textures -> humanoid rig/skin -> animation -> glTF/GLB -> Babylon.js runtime`
 
-Do not build a generic enterprise workflow engine. Keep the API small and specific to this game.
+The project does NOT use Unreal Engine or Unity. Do not introduce a second engine.
 
-Required stages remain:
-- ACCESS
-- MANIFEST
-- VERIFY
-- DONE / EXTRACT
+The character must be an ORIGINAL CUMA WORLD character.
+Do not copy James Bond, an actor, a real person's identity, or another game's proprietary face/body/costume/animation/assets.
+Real-human images may be used only as lawful anatomy/material reference, not identity cloning.
+
+Do not exaggerate physical ideals. Optimize for believable anatomy, deformation, clothing, skin response and third-person readability.
+
+---
+
+# Part A — Audit the existing character pipeline
+
+Inspect before editing:
+- `src/game/character.ts`
+- `.github/workflows/android-play-runtime.yml`
+- `ci/install_high_character.py`
+- `ci/validate_android_character_glb.py`
+- the source archive character paths
+- any checked-in or generated character assets/scripts
+- graphics tiers, shadows, camera framing and bundle budgets
+
+Report what the archive-provided model actually contains when available:
+- GLB size
+- meshes/primitives
+- skeleton/bone count
+- materials/textures
+- animation names
+- morph targets
+
+Do not silently call the current MakeHuman fallback "photoreal" if it is not.
+
+Keep the existing procedural fallback operational for invalid/missing GLB.
+
+---
+
+# Part B — Art direction / reference standard
+
+Character direction:
+- fictional adult field operative
+- believable facial planes and asymmetry
+- natural head/neck/shoulder transition
+- realistic hands, elbows, knees, feet and silhouette
+- restrained contemporary tailored field clothing
+- practical footwear/accessories only where visually useful
+- grounded proportions; no superhero silhouette
+- readable from the existing third-person shoulder camera
+
+Reference standard:
+- multiple licensed/admissible adult anatomy references
+- front / profile / 3-quarter facial-plane study
+- neutral full-body proportion reference
+- clothing-fold/fabric material reference
+- do not reconstruct one identifiable person's face
+
+If repository/CI cannot legally obtain a truly improved original asset automatically, do not download random web models. Build the pipeline/contract and clearly report the asset-authoring dependency instead of fabricating provenance.
+
+---
+
+# Part C — Modeling / retopology contract
+
+Document and support a Blender-compatible authoring/export path.
+
+Target stages:
+1. primary-form sculpt
+2. clean game retopology
+3. UV unwrap with consistent texel density
+4. efficient material regions
+5. deformation-friendly loops at shoulders, elbows, wrists, hips, knees, neck, eyes and mouth
+
+Do not waste geometry on invisible micro-detail; pores belong mainly in normal/roughness maps.
+
+Target a practical Android hero budget. Choose exact numbers after auditing the existing model, but report them explicitly.
+
+Preferred runtime strategy:
+- HERO/HIGH presentation asset or tier
+- MOBILE/LOW reduced asset/LOD if it can be added without destabilizing the renderer
+
+If clean automatic LOD switching is too risky in one milestone, ship one well-optimized model and document the second LOD contract for later.
+
+---
+
+# Part D — PBR skin / eyes / hair / wardrobe
+
+Skin should read as human without looking plastic or waxy.
+
+Support/validate where practical:
+- baseColor/albedo
+- normal
+- roughness/metallic workflow appropriate to glTF
+- AO where useful
+- restrained detail normal only if worth the cost
+
+Skin authoring should include subtle:
+- pore-scale normal detail
+- roughness variation
+- pigmentation variation
+- natural eye/lip region differences
+- restrained capillary/vein color variation where appropriate
+
+Do not bake strong lighting into albedo.
+
+Android texture rules:
+- no 8K
+- do not default blindly to 4K
+- prefer a justified 1K/2K strategy
+- count/report texture dimensions and total image payload
+
+Eyes:
+- separate believable cornea/iris response only if material/mesh cost stays controlled
+- avoid glowing or glass-marble eyes
+
+Hair:
+- avoid extreme transparent-card overdraw
+- prefer a controlled modeled/card hybrid readable at third-person distance
+
+Wardrobe:
+- fabric must read through roughness/normal response, not painted highlights
+- keep material count controlled
+
+---
+
+# Part E — Rigging / skin deformation
+
+Standardize one humanoid skeleton compatible with the existing collider-driven movement.
+
+Required hierarchy/deformation coverage:
+- hips/pelvis
+- spine/chest
+- neck/head
+- clavicles/shoulders
+- upper/lower arms
+- wrists/hands
+- upper/lower legs
+- ankles/feet
+
+Finger bones are optional if cost is justified.
+
+Test skin weights in:
+- idle
+- walk stride extremes
+- run stride extremes
+- crouch
+- jump takeoff
+- airborne/fall
+- landing
+- cover-adjacent/shoulder-camera turns
+
+Reject severe:
+- collapsing shoulders
+- candy-wrapper wrists
+- broken knees
+- floating clothing
+- visible limb clipping
+
+Gameplay capsule/collision scale remains independent from render skeleton scale.
+
+---
+
+# Part F — Animation contract and runtime integration
+
+Preserve current compatibility with idle/walk/run, but expand imported clip support.
+
+Required canonical runtime states:
+- idle
+- walk
+- run
+- crouch_idle
+- crouch_walk (or crouch_locomotion)
+- jump_start
+- airborne/fall
+- landing
+
+Optional if cleanly available:
+- cover_idle
+- cover_locomotion
+- contextual turn/look additive
+
+Do NOT add combat/takedown animation work.
+
+Animation requirements:
+- believable weight transfer
+- minimal visible foot skating
+- clean loop boundaries
+- consistent root/origin convention
+- in-place locomotion preferred because player movement is collider-driven
+- no unexpected root-motion translation unless runtime explicitly consumes it
+
+Extend `PlayerCharacter` in place:
+- cache imported animation groups once
+- map aliases to canonical states
+- smooth transitions/crossfades where stable
+- do not restart groups every frame
+- missing optional clips gracefully fall back to idle/walk/run
+- crouch/jump/landing animation changes must NEVER modify authoritative collision behavior
+
+Preserve:
+- RUN/JUMP/CROUCH
+- cover integration
+- landing/noise behavior
+- shoulder camera target
+- shadows
+- graphics tiers
+
+---
+
+# Part G — Optional facial life layer
+
+If compatible morph targets/bones exist, add a low-cost optional facial-life layer.
+
+Initial allowed contract:
+- blink or blink_left / blink_right
+- subtle eye aim/movement if authored
+- optional very subtle neutral jaw/mouth motion
 
 Rules:
-- the player completes a stage by using ONE valid resolution for that stage
-- a stage must never complete twice
-- resolving one method must disable duplicate completion from its alternate method
-- progression must survive save/resume
-- old saves with only `operationStep` must migrate safely
-- existing `document.body.dataset.operationStep` compatibility must remain because Milestone 03 credential/doors consume it
-- do not create a second MissionDirector
+- no per-frame random jitter
+- deterministic/low-frequency timing
+- cache morph references once after load
+- Reduced Motion may reduce nonessential micro-motion
+- absence of facial targets must never crash or warn-spam
+- document exact supported morph aliases
 
-Expose enough typed read-only state for runtime, FIELD FOCUS and debrief to know which resolution was used.
-
----
-
-# Part B — Give MANIFEST and VERIFY real alternate solutions
-
-Keep the current targets; do not delete the existing path.
-
-Add at least these original alternate resolution concepts, adapting exact coordinates to the real world after inspection:
-
-## MANIFEST
-
-Resolution A — current records route:
-- existing BACK OFFICE / RECORDS manifest terminal
-- RESTRICTED risk
-
-Resolution B — loading/stock ledger route:
-- add a believable read-only delivery/stock manifest board or ledger in the existing loading/stock network
-- it becomes a valid MANIFEST resolution only when the player has discovered the existing worker/service-route intelligence (`market_worker_route`) or an equivalent already-earned prerequisite
-- this should let a prepared player resolve MANIFEST with less time in the back office, at the cost of exposure to the service route / patrol environment
-- use the existing interaction control
-
-## VERIFY
-
-Resolution A — current delivery-counter physical record
-- preserve the existing VERIFY target
-
-Resolution B — monitoring-room cross-check
-- add a read-only fictional shipment/timestamp cross-check at the existing SECURITY / MONITORING room
-- requires the already-discovered camera/security intelligence (`market_camera`) or an equivalent earned prerequisite
-- this is a higher-risk RESTRICTED resolution, not a hack
-- no real security bypass instructions or realistic intrusion procedure
-
-The alternate resolution must satisfy VERIFY exactly once and then move to EXTRACT like the original target.
-
-Do not make one route objectively superior. The trade-off should be location, surveillance, zone pressure, patrol exposure and available intel.
-
-ACCESS remains the required credential stage from previous milestones unless the existing architecture proves a safe alternative can be added without weakening the staff-credential system. Do not destabilize credential semantics just to force another branch.
+Do not build a dialogue/lip-sync system in this milestone.
 
 ---
 
-# Part C — Two meaningful optional objectives
+# Part H — Stronger GLB validator
 
-Add exactly two compact optional objectives for this mission. They must be skippable and must never block extraction.
+Upgrade `ci/validate_android_character_glb.py` from the current minimal mesh/skin/idle-walk-run check.
 
-Suggested original objectives:
+It should report/validate as much as practical without heavyweight dependencies:
+- GLB v2 parse
+- file size
+- meshes / primitive counts
+- POSITION accessor vertex counts and approximate triangle/index counts
+- skins
+- skeleton/bone/joint counts
+- materials
+- textures/images and embedded byte sizes; dimensions if straightforward to parse
+- animation clip names
+- required idle/walk/run compatibility
+- optional expanded clip availability
+- morph-target names/count where glTF metadata exposes them
+- suspiciously excessive counts with clear budget warnings/errors
 
-1. `SECONDARY_RECORDS`
-   - located in the records/back-office area
-   - interact with a secondary shipment/archive record
-   - creates extra RESTRICTED exposure
-   - adds debrief/score credit
+Do not reject a valid model merely because optional facial/crouch clips are missing; runtime fallback is allowed.
 
-2. `SHIFT_PATTERN`
-   - inspect a staff shift/delivery schedule board in a believable STAFF or back-office location
-   - completion unlocks a useful staff-routine opportunity described below
-   - adds debrief/score credit
-
-Names can be improved if needed, but keep them original and readable in Turkish UI.
-
-Requirements:
-- optional objective state belongs to the mission system, not a second quest manager
-- completion persists in the current save
-- old saves default to incomplete without crashing
-- FIELD FOCUS may mark a discovered/known optional objective when appropriate
-- the objective should have a physical world reason and risk/reward, not merely a menu checkbox
+Validator output must be written into the Android build log so future character regressions are visible.
 
 ---
 
-# Part D — Generalize mission opportunities
+# Part I — Character provenance and packaging
 
-Extend the existing `opportunities` concept rather than creating another opportunity manager.
+Keep explicit asset provenance.
 
-Preserve `camera_bypass` exactly as a valid opportunity.
+Current fallback is pinned CC0 MakeHuman/MPFB `suited.glb` from the existing installer. If replacing it:
+- replacement must have documented redistribution rights appropriate for the repository/build
+- pin source/version/hash when externally fetched
+- never silently fetch an unpinned latest binary
+- do not commit or redistribute restricted proprietary source assets
 
-Add at least two original, non-combat environmental opportunities:
+Prefer archive-provided original CUMA character when that asset has valid provenance.
 
-## 1. STAFF ROUTINE WINDOW
+Keep final runtime artifact path compatible:
+`public/assets/characters/cuma_runtime.glb`
 
-Unlocked by completing/discovering the relevant staff schedule / shift-pattern information.
-
-Effect:
-- use one existing contextual interaction point such as a schedule/dispatch board
-- starts a short, bounded routine window (roughly 15–25 seconds)
-- one worker/staff NPC follows an authored alternate routine toward loading/stock or another believable staff task
-- creates a temporary gap in the staff corridor
-- does NOT reduce all security heat
-- does NOT affect security guards in SEARCH/HIGH_ALERT
-- one use per run unless architecture strongly justifies otherwise
-
-This is a fictional scheduling opportunity, not impersonation instructions for the real world.
-
-## 2. DELIVERY CART / MOBILE COVER OPPORTUNITY
-
-Unlocked by `market_worker_route`, SHIFT_PATTERN, or another earned staff-route condition.
-
-Effect:
-- a delivery cart / rolling stock object in the staff/loading network can move between authored positions
-- the moved object changes a real sightline or creates useful physical cover
-- its final geometry must work with the existing directional SİPER system
-- it must not clip, block every route, or create a permanent softlock
-- moving it may create a small environment-noise impulse through the existing authoritative noise system if appropriate
-- no new physics engine or freeform object dragging is needed; use controlled authored positions
-
-Opportunity requirements:
-- opportunity discovery/availability and use must be typed and visible to mission/debrief state
-- using one must not automatically complete a required mission stage
-- opportunity use should contribute modestly to score/debrief
-- do not create a large opportunity menu
-- existing interaction ownership remains deterministic
+Ensure `dist/assets/characters/cuma_runtime.glb` is produced and Capacitor packages it into Android.
 
 ---
 
-# Part E — NPC routine variation
+# Part J — Fallback and failure handling
 
-Milestone 04 improved facility response, but base patrol loops are still mostly deterministic.
+If GLB loading/parsing fails:
+- gameplay must still boot
+- procedural fallback becomes visible
+- collider and controls remain usable
+- no half-imported invisible character state
+- dispose/disable partial imported data safely if needed
 
-Extend the existing `npc.ts` route/patrol ownership; do NOT create a second scheduler or AI state machine.
+If an optional animation/morph is absent:
+- use a sensible fallback
+- never crash
 
-Create a compact routine/waypoint model supporting at minimum:
-- waypoint position
-- optional dwell/pause duration
-- optional look direction / look sweep
-- role-appropriate behavior
-- at least two authored route variants for security where the real geometry supports them
-- a worker/staff routine distinct from security behavior
-
-Requirements:
-- NPCs must not all pause/turn at the same time
-- use deterministic pseudo-random variation from a persisted per-run seed rather than calling random every frame
-- the same saved run resumes with the same routine variation
-- pressing REPLAY / starting a fresh mission should generate a new run seed so patrol timing/path variation can differ
-- SEARCH/HIGH_ALERT from Milestone 04 overrides normal routine as appropriate, then NPCs return cleanly to their routine after recovery
-- STAFF ROUTINE WINDOW may temporarily select an authored worker alternate routine
-- never route an NPC from the player's live position
-- no per-NPC `requestAnimationFrame`, `setInterval`, or per-frame random allocations
-- LOW tier may use simpler look/pause presentation while preserving actual route differences
-
-Do not add more NPCs merely to make the system look deeper. Improve behavior of the current cast first.
+Do not make internet access a runtime requirement.
 
 ---
 
-# Part F — Recon/intel must explain the new choices
+# Part K — Performance budgets
 
-Do not add a giant planning screen yet.
-
-Use existing RECON / PLANNING presentation to make earned choices understandable:
-- worker-route intel should clearly imply the loading/ledger route and/or cart opportunity
-- camera intel should clearly imply the monitoring-room VERIFY path and existing CCTV opportunity
-- completed SHIFT_PATTERN should make STAFF ROUTINE WINDOW readable
-- FIELD FOCUS during infiltration may show only the alternate solutions/opportunities the player has actually earned
-
-No permanent enemy markers and no new wallhack.
-
-SCAN remains signal discovery.
-FIELD FOCUS remains known-context readability.
-
----
-
-# Part G — Rich mission result and debrief
-
-The current `debrief.ts` scrapes the HUD text with regular expressions and directly imports `mission.ts`. This is brittle and also pulls `mission -> operation-depth -> world-expansion -> doors` toward the startup bundle.
-
-Because this milestone already changes mission result data, replace that dependency with a small typed result handoff.
-
-Preferred shape:
-- MissionDirector exposes/builds a typed `MissionResult` or immutable completion snapshot
-- runtime or mission layer publishes one completion event/signal when COMPLETE is reached
-- debrief consumes that result directly rather than parsing the objective/HUD string
-- if the game loads a save already in COMPLETE, debrief still receives a valid result
-
-Debrief should show compactly:
-- rank
-- score
-- route used
-- MANIFEST resolution used
-- VERIFY resolution used
-- optional objectives completed (0/2, 1/2, 2/2)
-- intel found
-- opportunities used
-- alert count or a compact security-performance line
-- one short replay hint based on an unused major route/resolution when available
-
-Do not turn debrief into a desktop analytics dashboard.
-
-### Startup dependency improvement
-
-If it can be done cleanly within this work, break the known startup dependency:
-`debrief -> mission -> operation-depth -> world-expansion -> doors`
-
-A good approach is moving the tiny save-reset helper into a dependency-light storage/result module that both mission and debrief can use.
-
-Requirements:
-- do NOT duplicate save keys or reset logic
-- replay still clears the current mission correctly
-- measure boot chunk before/after
-- do not perform a broad bundler refactor unrelated to the mission/debrief edge
-
----
-
-# Part H — Scoring and rank
-
-Preserve the existing GHOST / SHADOW / OPERATIVE rank concept.
-
-Refine score so it rewards meaningful play instead of only raw intel count:
-- required mission completion
-- optional objectives
-- useful opportunities
-- optional intel
-- low alert count
-- completing an alternate resolution should not itself be worth more than the normal resolution; risk/reward should come from optional goals and security performance
-
-Keep score 0..100 and make the formula understandable/tunable with named values.
-
-Do not punish a player merely for choosing MAIN versus SIDE route.
-
----
-
-# Part I — Save migration and replay seed
-
-Extend the existing save object with optional backward-compatible fields as needed, for example:
-- `runSeed`
-- stage resolution ids
-- optional-objective ids
-- expanded opportunity ids
+Measure/report:
+- GLB bytes
+- mesh count
+- primitive count
+- vertices/triangles
+- skin/joint count
+- material count
+- image/texture count and dimensions where possible
+- animation count
+- morph-target count
+- web bundle effect
+- APK/AAB artifact delta
 
 Rules:
-- do not change the existing storage key unless absolutely necessary
-- old saves must load without crashing
-- old INFILTRATE saves with only `operationStep` must get sensible unresolved/default branch state
-- COMPLETE old saves must still show a usable debrief
-- replay must clear mission progress and generate a fresh run seed on the next run
-- runtime-only Milestone 04 facility heat/focus/social cooldown should remain runtime-only unless there is a strong gameplay reason otherwise
+- no scene-wide per-frame character scans
+- no per-frame temporary animation/morph lookup arrays
+- controlled skinned-mesh count
+- controlled material count
+- controlled transparent hair overdraw
+- LOW/MEDIUM remain viable
+- preserve all existing web bundle budgets
+
+Character asset bytes may increase APK/AAB size, so report the exact delta rather than hiding it.
 
 ---
 
-# Part J — Preserve all previous milestones
+# Part L — Acceptance scenarios
 
-Do NOT regress Milestone 01:
+1. Valid packaged character imports and procedural fallback is disabled only after a successful import.
+2. Missing/corrupt GLB still boots with the procedural character.
+3. Visual character scale matches the existing 1.72 m collider convincingly.
+4. Idle/walk/run animation compatibility remains intact.
+5. Crouch uses imported crouch animation when present and falls back safely when absent.
+6. Jump/air/landing uses imported clips when present without changing gameplay physics.
+7. Shoulder-camera view has believable head/neck/shoulder presentation.
+8. Skin/material response under current outdoor/interior lighting does not read as flat plastic.
+9. Clothing reads as fabric and does not produce severe clipping during locomotion.
+10. Hands/elbows/knees/feet remain believable at motion extremes.
+11. Directional cover/crouch do not create major body-wall clipping regressions.
+12. LOW/MEDIUM graphics tiers still run the same gameplay systems and do not require a different controller.
+13. Pause/background/resume does not corrupt imported animation state.
+14. Missing optional face morphs/clips never crash.
+15. Strong validator prints meaningful geometry/rig/material/animation stats in CI.
+16. Android workflow includes the GLB in dist/APK/AAB and completes successfully.
+
+---
+
+# Preserve all gameplay work
+
+Do not regress any verified system from Milestones 01–04:
+- movement and multitouch
+- RUN/JUMP/CROUCH
 - authoritative noise/hearing
-- landing impulses
-- zone suspicion/recovery
-- DECOY behavior
-
-Do NOT regress Milestone 02:
-- directional cover
-- observer-specific protection
-- cover movement/camera
-- RUN/JUMP cover exits
-
-Do NOT regress Milestone 03:
-- connected facility topology
-- one Door/Access system
-- staff credential
-- front/side/utility routes
-- door collision/noise
-
-Do NOT regress Milestone 04:
+- directional cover and cover camera
+- facility topology / doors / credentials
+- CCTV/gadgets
 - CALM/WATCH/SEARCH/HIGH_ALERT
-- incident ceilings
-- last-known anchor instead of live-player wall tracking
-- coordinated multi-point search
-- COVER STORY rules/cooldown
+- COVER STORY
 - FIELD FOCUS
-- CCTV facility integration
-- security-door close behavior
+- mission progression/save
+- graphics tiers
+- Android lifecycle
 
-Preserve mobile multitouch, settings, graphics tiers, pause/background/resume and current Android lifecycle behavior.
-
----
-
-# Performance requirements
-
-- do not evaluate the entire mission graph by scanning every node every frame
-- mission progression should be event-driven where practical
-- do not allocate route variants every NPC update
-- deterministic routine choices should be generated once per run/agent
-- optional-objective and opportunity prompts use the existing interaction resolver
-- no per-frame DOM writes for mission/debrief state
-- mobile cover/cart geometry must remain cheap
-- keep boot, largest chunk and total JS budgets green
-- report boot chunk before/after, especially if the debrief->mission dependency is broken
+Milestone 05 mission-graph work remains paused and must NOT be mixed into this character commit.
 
 ---
 
-# Acceptance scenarios
-
-1. Existing normal path still works: ACCESS terminal -> records MANIFEST -> delivery-counter VERIFY -> EXTRACT.
-2. Prepared player with worker-route intel can complete MANIFEST through the loading/stock ledger instead of the records terminal.
-3. Prepared player with camera intel can complete VERIFY through the monitoring-room cross-check instead of the delivery counter.
-4. Resolving MANIFEST or VERIFY through one method disables duplicate completion through the alternate method.
-5. Two optional objectives can both be ignored and the mission remains completable.
-6. Completing optional objectives increases score/debrief credit and one of them unlocks STAFF ROUTINE WINDOW.
-7. STAFF ROUTINE WINDOW temporarily changes the worker's authored routine without changing guard knowledge or erasing facility heat.
-8. Delivery-cart opportunity moves to an authored position, changes a real sightline/cover option, and never blocks all routes.
-9. Two fresh replays can select different patrol dwell/route variation, while saving/resuming the same run preserves its variation.
-10. SEARCH/HIGH_ALERT still overrides normal routines and guards return cleanly after recovery.
-11. FIELD FOCUS shows only alternate resolutions/opportunities actually earned by intel/objectives.
-12. Debrief reports route, resolution choices, optional-objective count, intel, opportunities, alerts, rank and score without regex-parsing HUD prose.
-13. Old saves load safely; old INFILTRATE progress remains completable.
-14. Replay resets mission progress and creates a fresh run variation seed.
-15. All previous front/side/utility traversals, doors, credential, CCTV, cover, hearing, facility security and social stealth remain functional.
-
----
-
-# Validation
+# Validation / delivery
 
 Before committing:
 - run `npm run build`
-- fix every TypeScript/Vite failure
-- verify all three bundle budgets
-- inspect the save migration manually with representative old payload shapes
-- simulate or unit-check the mission graph so alternate resolutions cannot double-complete a stage
-- inspect replay seed stability: same saved run stable, reset run changes seed
-- inspect interaction ownership so optional/objective/opportunity prompts cannot fight doors/terminals/COVER STORY
-- inspect SEARCH/HIGH_ALERT -> routine recovery
-- confirm no new combat/weapon system and no duplicate AI/mission/opportunity managers
+- fix TypeScript/Vite failures
+- run the upgraded character GLB validator against the exact packaged asset
+- confirm all bundle budgets green
+- inspect `dist/assets/characters/cuma_runtime.glb`
+- verify fallback behavior from code paths
 
-Commit message suggestion:
-`feat: branch mission solutions and replay routines`
+Suggested gameplay commit:
+`feat: upgrade hero character realism pipeline`
 
-After pushing:
-- dispatch `.github/workflows/android-play-runtime.yml` against `claude/full-game-development` if needed
-- verify the workflow for the exact gameplay commit
-- final CI truth comes from completed run status plus artifact/job log; do not rely on a stale step snapshot
-- do not claim APK/AAB success until the artifact/build evidence exists
-- update `CLAUDE_CODE_HANDOFF.md` with gameplay HEAD, mission-graph API, resolution ids, optional objectives, opportunities, routine model, run-seed behavior, debrief/result contract, bundle measurements, CI result and remaining real-device checks
+After push:
+- dispatch `.github/workflows/android-play-runtime.yml` on `claude/full-game-development`
+- verify final run status
+- verify debug APK + Play AAB
+- verify artifact upload and digest
+- do not claim real-device visual quality or FPS from CI
+
+Update `CLAUDE_CODE_HANDOFF.md` with:
+- gameplay commit SHA
+- character source/provenance/license status
+- exact GLB source selected by CI
+- GLB hash and size
+- mesh/primitive/triangle/vertex stats
+- joints/bones
+- materials/textures
+- animation contract and clips actually present
+- morph targets actually present
+- runtime animation changes
+- fallback behavior
+- bundle measurements
+- workflow run ID/artifact size/hash
+- real-device visual/performance checks still required
+- note that Milestone 05 mission graph remains paused
 
 Then STOP.
-Do not begin Milestone 06 in the same implementation commit.
+Do not begin mission-graph work or another milestone in the same implementation commit.
