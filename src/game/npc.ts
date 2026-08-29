@@ -82,6 +82,16 @@ const POSTURE_AWARENESS_SCALE: Record<FacilityState, number> = {
   HIGH_ALERT: 1.3,
 };
 
+/**
+ * Search presentation. The guard alternates between turning and holding so the
+ * posture reads as inspecting; it changes nothing the guard knows or where it
+ * goes.
+ */
+const SEARCH_CADENCE_HZ = 1.6;
+const SEARCH_HOLD_THRESHOLD = -0.2;
+/** Reduced Motion damps nonessential oscillation without hiding orientation. */
+const REDUCED_PRESENTATION_SCALE = 0.55;
+
 /** Coordinated search: guards fan out around the anchor instead of stacking. */
 const SEARCH_RING_MIN = 2.4;
 const SEARCH_RING_MAX = 5.2;
@@ -178,6 +188,8 @@ class NpcAgent {
   private contactMemory = 0;
   private posture: FacilityState = "CALM";
   private scanPhase = 0;
+  /** Scales nonessential presentation motion only; never speed or knowledge. */
+  private presentationScale = 1;
 
   constructor(
     private readonly scene: Scene,
@@ -287,6 +299,11 @@ class NpcAgent {
     this.occlusionRays = enabled;
   }
 
+  /** Reduced Motion damps look/sweep amplitude; routes and timing are untouched. */
+  setPresentationScale(scale: number): void {
+    this.presentationScale = Math.max(0.2, Math.min(1, scale));
+  }
+
   /**
    * React to a one-shot sound (landing, decoy). Reuses the existing
    * investigation/last-known-position behaviour instead of adding a second
@@ -386,14 +403,21 @@ class NpcAgent {
 
     if (this.searchTimer > 0 && this.state !== "NORMAL") {
       this.routineInterrupted = true;
-      const searchSpeed = (this.config.security ? 0.86 : 0.62) * urgency;
-      this.root.rotation.y += dt * searchSpeed * this.searchDirection;
+      // Presentation only: a stepped turn/pause cadence reads as inspecting a
+      // spot rather than spinning on it. The cadence comes from this agent's
+      // seeded phase offset, so it is deterministic, desynchronised between
+      // units, and tells the guard nothing new.
+      this.sweepPhase += dt;
+      const cadence = Math.sin(this.sweepPhase * SEARCH_CADENCE_HZ + this.phaseOffset);
+      const inspecting = cadence < SEARCH_HOLD_THRESHOLD ? 0 : 1;
+      const searchSpeed = (this.config.security ? 0.86 : 0.62) * urgency * this.presentationScale;
+      this.root.rotation.y += dt * searchSpeed * this.searchDirection * inspecting;
       return;
     }
 
     if (this.state === "ALERT") {
       this.routineInterrupted = true;
-      this.root.rotation.y += dt * 0.72 * urgency;
+      this.root.rotation.y += dt * 0.72 * urgency * this.presentationScale;
       return;
     }
 
@@ -424,11 +448,11 @@ class NpcAgent {
         // A slow authored look-around while held at the point. The per-agent
         // phase offset is what stops units sweeping in unison.
         this.sweepPhase += dt * 1.1;
-        this.root.rotation.y += Math.sin(this.sweepPhase) * dt * sweep;
+        this.root.rotation.y += Math.sin(this.sweepPhase) * dt * sweep * this.presentationScale;
       }
       if (watching) {
         this.scanPhase += dt * 0.9;
-        this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55;
+        this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55 * this.presentationScale;
       }
       if (this.dwellRemaining <= 0) this.advanceWaypoint();
       return;
@@ -438,7 +462,7 @@ class NpcAgent {
     const distance = this.moveToward(target.position, watching ? patrolSpeed * 0.82 : patrolSpeed, dt);
     if (watching) {
       this.scanPhase += dt * 0.9;
-      this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55;
+      this.root.rotation.y += Math.sin(this.scanPhase) * dt * 0.55 * this.presentationScale;
     }
     if (distance >= 0.18) return;
 
@@ -746,11 +770,13 @@ export class NpcSystem {
     return strongest;
   }
 
-  applyQuality(tier: "LOW" | "MEDIUM" | "HIGH" | "ULTRA"): void {
+  applyQuality(tier: "LOW" | "MEDIUM" | "HIGH" | "ULTRA", reducedMotion = false): void {
     const senseInterval = tier === "LOW" ? 0.18 : tier === "MEDIUM" ? 0.14 : tier === "ULTRA" ? 0.09 : 0.11;
+    const presentationScale = reducedMotion ? REDUCED_PRESENTATION_SCALE : 1;
     this.agents.forEach((agent, index) => {
       agent.setSenseInterval(senseInterval);
       agent.setHearingOcclusion(tier !== "LOW");
+      agent.setPresentationScale(presentationScale);
       agent.setEnabled(tier !== "LOW" || index < 2);
     });
   }

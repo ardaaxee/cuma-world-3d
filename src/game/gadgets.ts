@@ -7,6 +7,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import "../gadgets.css";
+import { publishPresentation } from "./presentation-events";
 
 type GadgetId = "scan" | "jam" | "decoy";
 
@@ -29,6 +30,8 @@ class GadgetToolkit {
   private readonly status: HTMLElement;
   private readonly buttons = new Map<GadgetId, HTMLButtonElement>();
   private readonly readyAt = new Map<GadgetId, number>();
+  /** Previous cycle's ready state, so only a real transition publishes a cue. */
+  private readonly wasReady = new Map<GadgetId, boolean>();
   private refreshTimer = 0;
 
   constructor() {
@@ -211,6 +214,14 @@ class GadgetToolkit {
     return true;
   }
 
+  /**
+   * Runs on the existing 250 ms UI refresh — this milestone adds no timer.
+   *
+   * A gadget that crosses from cooling down to ready publishes exactly one
+   * typed cue. Gadgets that were already ready when the panel first refreshed
+   * are recorded silently, so nothing announces itself at boot, and the state
+   * is only compared against the previous cycle, so an open panel never spams.
+   */
   private refresh(): void {
     const now = performance.now();
     const runtimeReady = EngineStore.LastCreatedScene?.getMeshByName("player-collider") instanceof Mesh;
@@ -226,6 +237,12 @@ class GadgetToolkit {
       button.classList.toggle("cooldown", !ready);
       const indicator = button.querySelector<HTMLElement>("i");
       if (indicator) indicator.textContent = ready ? "HAZIR" : `${Math.ceil(remaining / 1000)} sn`;
+
+      const wasReady = this.wasReady.get(config.id);
+      if (wasReady === false && ready && runtimeReady) {
+        publishPresentation("GADGET_READY", "HAZIR", `${config.label} YENİDEN KULLANILABİLİR`);
+      }
+      this.wasReady.set(config.id, ready);
     }
   }
 

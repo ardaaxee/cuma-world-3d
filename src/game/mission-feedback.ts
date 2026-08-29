@@ -1,19 +1,59 @@
-type FeedbackKind = "OBJECTIVE" | "INTEL" | "AWARENESS";
+import {
+  type PresentationCue,
+  type PresentationEvent,
+  type PresentationWeight,
+  onPresentation,
+  presentationWeight,
+} from "./presentation-events";
+
+/**
+ * The transient mission feedback line.
+ *
+ * This used to run three MutationObservers over HUD elements and recover
+ * gameplay state with regexes over Turkish prose. It now consumes the typed
+ * presentation cues gameplay publishes, so it reacts to what actually happened
+ * rather than to what the HUD happened to print.
+ *
+ * It stays deliberately small: one line, no banner, no screen flash, no camera
+ * shake, and it never duplicates the permanent HUD meters.
+ */
+
+/** How long each weight stays on screen. */
+const HOLD_SECONDS: Record<PresentationWeight, number> = {
+  SUBTLE: 1.9,
+  NORMAL: 2.6,
+  STRONG: 2.2,
+  CRITICAL: 2.4,
+};
+
+/**
+ * Haptics escalate with weight and nothing more. Each pattern fires once, on a
+ * real transition — never per frame and never repeated while a state holds.
+ */
+const HAPTICS: Record<PresentationWeight, readonly number[]> = {
+  SUBTLE: [16],
+  NORMAL: [26],
+  STRONG: [24, 28, 24],
+  CRITICAL: [44, 30, 66],
+};
+
+/** Cues that should not interrupt a louder one already on screen. */
+const PRIORITY: Record<PresentationWeight, number> = {
+  SUBTLE: 0,
+  NORMAL: 1,
+  STRONG: 2,
+  CRITICAL: 3,
+};
 
 export class MissionFeedback {
   private readonly host: HTMLElement;
   private readonly labelEl: HTMLElement;
   private readonly detailEl: HTMLElement;
   private hideTimer: number | null = null;
-  private previousObjective: string;
-  private previousIntel: number;
-  private previousAwareness: string;
+  private activePriority = -1;
+  private readonly stop: () => void;
 
-  constructor(
-    private readonly objectiveEl: HTMLElement,
-    private readonly intelEl: HTMLElement,
-    private readonly awarenessEl: HTMLElement,
-  ) {
+  constructor() {
     this.host = document.createElement("div");
     this.host.className = "mission-feedback";
     this.host.setAttribute("role", "status");
@@ -27,91 +67,58 @@ export class MissionFeedback {
     this.host.append(this.labelEl, this.detailEl);
     document.body.append(this.host);
 
-    this.previousObjective = this.readObjective();
-    this.previousIntel = this.readIntelCount();
-    this.previousAwareness = this.awarenessEl.dataset.state ?? "NORMAL";
-
-    new MutationObserver(() => this.onObjectiveChanged()).observe(this.objectiveEl, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    new MutationObserver(() => this.onIntelChanged()).observe(this.intelEl, {
-      childList: true,
-      characterData: true,
-      subtree: true,
-    });
-    new MutationObserver(() => this.onAwarenessChanged()).observe(this.awarenessEl, {
-      attributes: true,
-      attributeFilter: ["data-state"],
-    });
+    this.stop = onPresentation((event) => this.present(event));
   }
 
-  private onObjectiveChanged(): void {
-    const next = this.readObjective();
-    if (!next || next === this.previousObjective) return;
-    const hadPrevious = Boolean(this.previousObjective);
-    this.previousObjective = next;
-    if (!hadPrevious || !this.gameplayActive()) return;
-    this.show("OBJECTIVE", "YENİ HEDEF", next, [28]);
-  }
+  private present(event: PresentationEvent): void {
+    // The intro already has the title card; a feedback line would double it.
+    if (event.cue === "MISSION_INTRO") return;
+    if (!this.gameplayVisible()) return;
+    const weight = presentationWeight(event.cue);
+    const priority = PRIORITY[weight];
+    // A quiet cue never wipes a louder one that is still showing.
+    if (this.hideTimer !== null && priority < this.activePriority) return;
 
-  private onIntelChanged(): void {
-    const next = this.readIntelCount();
-    if (next <= this.previousIntel) {
-      this.previousIntel = next;
-      return;
-    }
-    this.previousIntel = next;
-    if (!this.gameplayActive()) return;
-    this.show("INTEL", "INTEL GÜNCELLENDİ", this.intelEl.textContent?.trim() ?? `INTEL ${next}`, [18]);
-  }
-
-  private onAwarenessChanged(): void {
-    const next = this.awarenessEl.dataset.state ?? "NORMAL";
-    if (next === this.previousAwareness) return;
-    this.previousAwareness = next;
-    if (!this.gameplayActive()) return;
-
-    if (next === "SUSPICIOUS") {
-      this.show("AWARENESS", "DİKKAT", "ŞÜPHE ARTIYOR", [24, 24, 24]);
-      return;
-    }
-    if (next === "ALERT") {
-      this.show("AWARENESS", "ALARM", "KONUMUN AÇIĞA ÇIKTI", [45, 32, 70]);
-    }
-  }
-
-  private show(kind: FeedbackKind, label: string, detail: string, vibration: number[]): void {
+    this.activePriority = priority;
     if (this.hideTimer !== null) window.clearTimeout(this.hideTimer);
-    this.host.dataset.kind = kind;
-    this.labelEl.textContent = label;
-    this.detailEl.textContent = detail;
+    this.host.dataset.kind = this.kindFor(event.cue);
+    this.host.dataset.weight = weight;
+    this.labelEl.textContent = event.label;
+    this.detailEl.textContent = event.detail;
+
+    // Restart the entry transition without a layout-thrashing reflow loop.
     this.host.classList.remove("visible");
     void this.host.offsetWidth;
     this.host.classList.add("visible");
-    this.vibrate(vibration);
+    this.vibrate(HAPTICS[weight]);
+
     this.hideTimer = window.setTimeout(() => {
       this.host.classList.remove("visible");
       this.hideTimer = null;
-    }, kind === "AWARENESS" ? 1800 : 2600);
+      this.activePriority = -1;
+    }, HOLD_SECONDS[weight] * 1000);
   }
 
-  private gameplayActive(): boolean {
+  /** Styling hook, kept coarse so the CSS does not need one rule per cue. */
+  private kindFor(cue: PresentationCue): string {
+    if (cue === "FACILITY_SEARCH" || cue === "FACILITY_HIGH_ALERT" || cue === "FACILITY_WATCH") return "AWARENESS";
+    if (cue === "INTEL_DISCOVERED" || cue === "OPTIONAL_COMPLETED") return "INTEL";
+    if (cue === "OPPORTUNITY_USED" || cue === "GADGET_READY") return "OPPORTUNITY";
+    return "OBJECTIVE";
+  }
+
+  private gameplayVisible(): boolean {
     return document.querySelector("#boot")?.classList.contains("hidden") ?? false;
   }
 
-  private readObjective(): string {
-    return this.objectiveEl.textContent?.trim() ?? "";
-  }
-
-  private readIntelCount(): number {
-    const match = this.intelEl.textContent?.match(/INTEL\s+(\d+)\/(\d+)/i);
-    return match ? Number(match[1]) : 0;
-  }
-
-  private vibrate(pattern: number[]): void {
+  private vibrate(pattern: readonly number[]): void {
     if (document.visibilityState !== "visible") return;
-    if (typeof navigator.vibrate === "function") navigator.vibrate(pattern);
+    if (typeof navigator.vibrate === "function") navigator.vibrate([...pattern]);
+  }
+
+  dispose(): void {
+    this.stop();
+    if (this.hideTimer !== null) window.clearTimeout(this.hideTimer);
+    this.host.remove();
   }
 }

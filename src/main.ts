@@ -84,7 +84,6 @@ const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
 const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
 const intelStatus = required<HTMLElement>("#intel");
 const interactionStatus = required<HTMLElement>("#interaction");
-const awarenessStatus = required<HTMLElement>("#awareness");
 const debriefOverlay = required<HTMLElement>("#mission-debrief");
 const debriefRank = required<HTMLElement>("#debrief-rank");
 const debriefScore = required<HTMLElement>("#debrief-score");
@@ -110,9 +109,11 @@ function syncRuntimePause(): void {
   if (!shouldPause) void runtime?.unlockAudio();
 }
 
-const uiAudioFeedback = new UiAudioFeedback(intelStatus, awarenessStatus);
+// Both feedback layers consume typed presentation cues now, so neither needs a
+// handle on the HUD elements it used to observe.
+const uiAudioFeedback = new UiAudioFeedback();
 new InteractionPromptGuard(intelStatus, interactionStatus);
-new MissionFeedback(required<HTMLElement>("#objective"), intelStatus, awarenessStatus);
+new MissionFeedback();
 new MissionDebrief(
   debriefOverlay,
   debriefRank,
@@ -425,12 +426,19 @@ enter.addEventListener("click", async () => {
     activeRuntime.start();
     syncRuntimePause();
 
+    // Unlock audio from the user's original button gesture, before the wait.
+    await Promise.allSettled([activeRuntime.unlockAudio(), uiAudioFeedback.unlock()]);
+
     boot.classList.add("hidden");
+    // HUD and mobile controls stay hidden through the mission intro; on a
+    // restored save playMissionIntro() resolves immediately and this reads
+    // exactly like the old flow.
+    await activeRuntime.playMissionIntro();
+
     hud.classList.remove("hidden");
     controls.classList.remove("hidden");
     wakeHud();
     scheduleHudQuiet();
-    await Promise.allSettled([activeRuntime.unlockAudio(), uiAudioFeedback.unlock()]);
   } catch (error) {
     console.error("CUMA WORLD runtime start failed", error);
     runtime = null;

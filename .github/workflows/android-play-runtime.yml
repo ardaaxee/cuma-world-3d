@@ -130,10 +130,20 @@ jobs:
           grep -q 'runSeed' src/game/mission-save.ts
           grep -q 'MISSION_RESULT_EVENT' src/game/mission-result.ts
           grep -q 'selectVariant' src/game/npc-routines.ts
-          # The debrief must consume the typed result, never regex over HUD prose.
-          ! grep -q 'MutationObserver' src/game/debrief.ts
-          ! grep -Eq 'text\.match\(|intelElement' src/game/debrief.ts
-          ! grep -q 'from "./mission"' src/game/debrief.ts
+          grep -q 'from "./mission-save"' src/game/debrief.ts
+          # Milestone 06 presentation contract.
+          grep -q 'PRESENTATION_EVENT_NAME' src/game/presentation-events.ts
+          grep -q 'playMissionIntro' src/game/runtime11.ts
+          grep -q 'playMissionIntro' src/main.ts
+          grep -q 'CinematicTimeline' src/game/cinematic-presentation.ts
+          grep -q 'setIdleFacing' src/game/character.ts
+          grep -q 'SPRINT_FOV_MIN_SPEED' src/game/runtime11.ts
+          grep -q 'GADGET_READY' src/game/gadgets.ts
+          # Regression guards. `! grep` is exempt from `set -e`, so these must
+          # test explicitly to actually be able to fail the build. They match
+          # real usage (`new MutationObserver`, an active `.match(`) so the
+          # modules may still explain in comments what they no longer do.
+          bash ci/check_presentation_regressions.sh
           grep -q 'InteractionPromptGuard' src/main.ts
           grep -q 'investigateTimer' src/game/npc.ts
           grep -q 'senseInterval' src/game/npc.ts
@@ -157,6 +167,7 @@ jobs:
           python3 ci/measure_android_web_bundle.py
           node ci/test_character_runtime.mjs
           node ci/test_mission_graph.mjs
+          node ci/test_presentation.mjs
 
       - name: Create native Android project
         shell: bash

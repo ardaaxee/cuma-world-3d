@@ -37,7 +37,9 @@ import {
   setFieldFocusQuality,
   updateFieldFocus,
 } from "./field-focus";
-import { MobileInput, isCrouched, isJumpQueued, isRunHeld } from "./input";
+import { CinematicPresentation } from "./cinematic-presentation";
+import { MobileInput, consumeJumpPressed, isCrouched, isJumpQueued, isRunHeld } from "./input";
+import { publishPresentation } from "./presentation-events";
 // Installs the staged ACCESS/MANIFEST terminals. It lives here rather than in
 // mission.ts so the mission graph stays free of the Babylon world graph.
 import "./operation-depth";
@@ -91,6 +93,13 @@ const SOCIAL_LABEL = "PERSONEL KARTINI GÖSTER";
 /** Doors are swung shut once per escalation, not continuously. */
 const SECURITY_DOOR_STATES: readonly FacilityState[] = ["SEARCH", "HIGH_ALERT"];
 
+/**
+ * Sprint FOV needs real running, not a full joystick. Walking is input-limited
+ * to 0.82 of full deflection (~3.4 m/s here), so this floor only has to reject
+ * "RUN held while standing still" — `isRunHeld()` does the rest.
+ */
+const SPRINT_FOV_MIN_SPEED = 1.2;
+
 /** Zone pressure only trickles into facility heat, never drives it. */
 const ZONE_PRESSURE_INCIDENT = 0.6;
 const ZONE_PRESSURE_INCIDENT_INTERVAL = 6;
@@ -136,6 +145,22 @@ export class GameRuntime {
   private readonly input = new MobileInput();
   private readonly mission = new MissionDirector();
   private readonly stealthSignals = new StealthSignalsHud();
+  private readonly cinematic = new CinematicPresentation();
+  private freshRun = false;
+  private introPlayed = false;
+  /** Previous mission snapshot values, so each cue fires exactly once. */
+  private lastObjective = "";
+  private lastIntelCount = 0;
+  private lastOperationStep = "";
+  private lastObjectivesCompleted = 0;
+  private lastOpportunitiesUsed = 0;
+  /** Scratch for the cinematic camera pose; allocated once. */
+  private readonly cinematicPosition = new Vector3();
+  private readonly cinematicTarget = new Vector3();
+  private readonly gameplayCamPosition = new Vector3();
+  private readonly gameplayCamTarget = new Vector3();
+  /** The look point the third-person camera resolved this frame. */
+  private readonly gameplayLookTarget = new Vector3();
   private shadowGenerator: ShadowGenerator | null = null;
   private readonly shadowCasters: Mesh[] = [];
   private graphicsPreferences = loadGraphicsPreferences();
@@ -226,8 +251,39 @@ export class GameRuntime {
     resetFieldFocus();
     resetDeliveryCart();
     this.applyGraphicsPreferences(this.graphicsPreferences);
+    // Captured before acknowledgeBriefing() moves BRIEFING -> RECON, so the
+    // intro plays for a genuinely fresh run and never for a restored save.
+    // This needs no save-schema field: the existing state already says it.
+    this.freshRun = this.mission.snapshot().state === "BRIEFING";
     this.mission.acknowledgeBriefing();
+    // Seed the cue baseline from the state we start in, so restoring a save
+    // mid-operation does not replay every transition the player already saw.
+    const initial = this.mission.snapshot();
+    this.lastObjective = initial.objective;
+    this.lastIntelCount = initial.intelFound;
+    this.lastOperationStep = initial.operationStep;
+    this.lastObjectivesCompleted = initial.objectivesCompleted;
+    this.lastOpportunitiesUsed = initial.opportunitiesUsed;
     this.updateHud();
+  }
+
+  /**
+   * Plays the fresh-run mission intro and resolves when it ends or is skipped.
+   * A no-op for a restored save, so `main.ts` can always await it.
+   */
+  playMissionIntro(): Promise<void> {
+    if (!this.freshRun || this.introPlayed) return Promise.resolve();
+    this.introPlayed = true;
+    return this.cinematic.begin(this.graphicsPreferences.reducedMotion);
+  }
+
+  /** True while the camera belongs to the intro rather than to gameplay. */
+  isCinematicActive(): boolean {
+    return this.cinematic.isActive;
+  }
+
+  skipMissionIntro(): void {
+    this.cinematic.skip();
   }
 
   start(): void {
@@ -239,7 +295,13 @@ export class GameRuntime {
       const dt = Math.min(0.05, (now - last) / 1000);
       last = now;
       this.lastRenderedAt = now;
-      if (!this.paused) this.update(dt);
+      // Pausing simply stops advancing either path, so backgrounding freezes
+      // the intro exactly like it freezes gameplay — no separate timer to
+      // suspend and nothing to restart on resume.
+      if (!this.paused) {
+        if (this.cinematic.isActive) this.updateCinematicFrame(dt);
+        else this.update(dt);
+      }
       this.scene.render();
     });
     window.addEventListener("resize", () => this.engine.resize());
@@ -307,11 +369,48 @@ export class GameRuntime {
 
     this.visualPolish.applyProfile(profile);
     setFieldFocusQuality(profile.tier, preferences.reducedMotion);
-    this.npcSystem.applyQuality(profile.tier);
+    this.npcSystem.applyQuality(profile.tier, preferences.reducedMotion);
     this.securitySystem.applyQuality(profile.tier);
     document.body.classList.toggle("reduced-motion", preferences.reducedMotion);
     this.engine.resize();
     return { ...profile };
+  }
+
+  /**
+   * The intro frame. Gameplay simulation is deliberately not run: mission
+   * progress, facility heat, NPC knowledge, zones and routes cannot move
+   * because nothing that changes them is called.
+   *
+   * Input is drained every frame rather than ignored, so a tap or a hidden
+   * keyboard press during the intro neither moves the player now nor leaks
+   * into the first gameplay frame as a queued jump or interact.
+   */
+  private updateCinematicFrame(dt: number): void {
+    this.input.frame();
+    consumeJumpPressed();
+
+    // Resolve where gameplay would put the camera right now, so the closing
+    // beat blends into the real pose instead of an approximation of it.
+    this.updateThirdPersonCamera(0, true);
+    this.gameplayCamPosition.copyFrom(this.camera.position);
+    this.gameplayCamTarget.copyFrom(this.gameplayLookTarget);
+
+    const active = this.cinematic.update(
+      dt,
+      this.gameplayCamPosition,
+      this.gameplayCamTarget,
+      this.cinematicPosition,
+      this.cinematicTarget,
+    );
+    this.camera.position.copyFrom(this.cinematicPosition);
+    this.camera.setTarget(this.cinematicTarget);
+
+    if (active) return;
+    // Hand the camera back with a forced settle so it lands collision-resolved,
+    // and drain input once more so the handover frame starts clean.
+    this.input.frame();
+    consumeJumpPressed();
+    this.updateThirdPersonCamera(0, true);
   }
 
   private update(dt: number): void {
@@ -338,11 +437,23 @@ export class GameRuntime {
     this.player.move(this.velocity.scale(dt));
 
     const horizontalSpeed = Math.hypot(this.velocity.x, this.velocity.z);
-    if (horizontalSpeed > 0.08) this.player.setFacing(Math.atan2(this.velocity.x, this.velocity.z), dt);
+    if (horizontalSpeed > 0.08) {
+      this.player.setFacing(Math.atan2(this.velocity.x, this.velocity.z), dt);
+    } else {
+      // Standing still: let the body catch up to a large camera/body yaw gap
+      // instead of staying permanently side-on to the shoulder camera. Cover
+      // stays authoritative, so the body is never turned into the surface.
+      this.player.setIdleFacing(this.yaw, dt, !guided);
+    }
     this.player.update(horizontalSpeed, dt, this.graphicsPreferences.reducedMotion, isInCover());
     this.audio.updateFootsteps(horizontalSpeed, dt);
 
-    this.running = strength > 0.86;
+    // Sprint FOV follows the actual run state, not joystick magnitude. A full
+    // joystick without RUN, and RUN while stationary, both stay at base FOV.
+    this.running = isRunHeld()
+      && !isCrouched()
+      && horizontalSpeed > SPRINT_FOV_MIN_SPEED
+      && !this.cinematic.isActive;
     const runningFov = this.graphicsPreferences.reducedMotion ? 69.5 : 71.2;
     const targetFov = (this.running ? runningFov : 68) * Math.PI / 180;
     this.camera.fov += (targetFov - this.camera.fov) * (1 - Math.exp(-5.5 * dt));
@@ -374,10 +485,12 @@ export class GameRuntime {
     if (facility.state !== this.lastSecurityState) {
       const escalated = SECURITY_DOOR_STATES.includes(facility.state)
         && !SECURITY_DOOR_STATES.includes(this.lastSecurityState);
+      const previousState = this.lastSecurityState;
       this.lastSecurityState = facility.state;
       // Escalation swings the controlled doors shut once. Access requirements
       // are untouched, so anything the player may open stays openable.
       if (escalated) closeSecurityDoors();
+      if (awarenessActive) this.publishFacilityCue(facility.state, previousState);
     }
 
     const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
@@ -408,6 +521,7 @@ export class GameRuntime {
     if (this.observation) this.updateObservation(dt);
     else this.updateInteraction(frame.interactPressed, awarenessActive, zone.zone, facility.state);
     this.updateFieldFocusReadout(awarenessActive);
+    this.publishMissionCues();
     this.updateHud();
   }
 
@@ -477,7 +591,10 @@ export class GameRuntime {
 
     if (force || collision.blocked || dt <= 0) this.camera.position.copyFrom(collision.position);
     else this.camera.position.copyFrom(Vector3.Lerp(this.camera.position, collision.position, 1 - Math.exp(-14 * dt)));
-    this.camera.setTarget(target.add(lookDirection.scale(7)));
+    // Kept so the cinematic can blend into the exact pose gameplay resolved,
+    // rather than recomputing this math in a second place.
+    this.gameplayLookTarget.copyFrom(target).addInPlace(lookDirection.scale(7));
+    this.camera.setTarget(this.gameplayLookTarget);
   }
 
   private updateObservation(dt: number): void {
@@ -824,6 +941,70 @@ export class GameRuntime {
     const source = snapshot.label === "CCTV" ? "CCTV · " : "";
     this.awarenessLabelEl.textContent = `${source}${snapshot.state === "NORMAL" ? "GÖRÜNMEZ" : snapshot.state === "CURIOUS" ? "MERAK" : snapshot.state === "SUSPICIOUS" ? "ŞÜPHE" : "ALARM"}`;
     this.awarenessFillEl.style.width = `${Math.round(snapshot.meter * 100)}%`;
+  }
+
+  /**
+   * One cue per genuine escalation. De-escalation is deliberately silent: the
+   * facility calming down is not something the player needs shouting about.
+   */
+  private publishFacilityCue(state: FacilityState, previous: FacilityState): void {
+    const rank = (value: FacilityState): number =>
+      value === "HIGH_ALERT" ? 3 : value === "SEARCH" ? 2 : value === "WATCH" ? 1 : 0;
+    if (rank(state) <= rank(previous)) return;
+    if (state === "WATCH") publishPresentation("FACILITY_WATCH", "İZLEME", "TESİS DİKKAT KESİLDİ");
+    else if (state === "SEARCH") publishPresentation("FACILITY_SEARCH", "ARAMA", "GÜVENLİK BÖLGEYİ TARIYOR");
+    else if (state === "HIGH_ALERT") publishPresentation("FACILITY_HIGH_ALERT", "YÜKSEK ALARM", "KONUMUN AÇIĞA ÇIKTI");
+  }
+
+  /**
+   * Watches the mission snapshot for the transitions worth announcing and
+   * publishes at most one typed cue for each. Comparing against the previous
+   * snapshot is what makes every cue single-fire.
+   */
+  private publishMissionCues(): void {
+    const state = this.mission.snapshot();
+
+    if (state.objective !== this.lastObjective) {
+      const hadPrevious = this.lastObjective !== "";
+      this.lastObjective = state.objective;
+      if (hadPrevious) publishPresentation("MISSION_OBJECTIVE", "YENİ HEDEF", state.objective);
+    }
+    if (state.intelFound > this.lastIntelCount) {
+      this.lastIntelCount = state.intelFound;
+      publishPresentation("INTEL_DISCOVERED", "INTEL GÜNCELLENDİ", `${state.intelFound}/${state.intelTotal} INTEL`);
+    } else {
+      this.lastIntelCount = state.intelFound;
+    }
+    if (state.operationStep !== this.lastOperationStep) {
+      const advanced = this.lastOperationStep !== "";
+      this.lastOperationStep = state.operationStep;
+      if (advanced && state.operationStep) {
+        publishPresentation("STAGE_RESOLVED", "AŞAMA TAMAMLANDI", this.stageLabel(state.operationStep));
+      }
+    }
+    if (state.objectivesCompleted > this.lastObjectivesCompleted) {
+      this.lastObjectivesCompleted = state.objectivesCompleted;
+      publishPresentation(
+        "OPTIONAL_COMPLETED",
+        "EK HEDEF",
+        `${state.objectivesCompleted}/${state.objectivesTotal} TAMAMLANDI`,
+      );
+    } else {
+      this.lastObjectivesCompleted = state.objectivesCompleted;
+    }
+    if (state.opportunitiesUsed > this.lastOpportunitiesUsed) {
+      this.lastOpportunitiesUsed = state.opportunitiesUsed;
+      publishPresentation("OPPORTUNITY_USED", "FIRSAT KULLANILDI", "TAKTİK AVANTAJ AKTİF");
+    } else {
+      this.lastOpportunitiesUsed = state.opportunitiesUsed;
+    }
+  }
+
+  private stageLabel(step: string): string {
+    if (step === "MANIFEST") return "ERİŞİM SAĞLANDI";
+    if (step === "VERIFY") return "MANİFEST EŞLEŞTİ";
+    if (step === "DONE") return "DOĞRULAMA TAMAM";
+    return "OPERASYON İLERLEDİ";
   }
 
   private updateHud(): void {

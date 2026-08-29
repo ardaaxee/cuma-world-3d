@@ -1,4 +1,16 @@
-type UiCue = "intel" | "curious" | "suspicious" | "alert";
+import { type PresentationCue, onPresentation } from "./presentation-events";
+
+/**
+ * Short synthetic UI cues.
+ *
+ * Like `MissionFeedback`, this used to watch HUD elements for DOM mutations and
+ * parse text to guess what happened; it now listens to the same typed
+ * presentation cues. The WebAudio approach is unchanged.
+ *
+ * These are deliberately tiny sine/triangle blips — full environmental audio
+ * belongs to a later milestone. There is no siren layer, nothing loops, and a
+ * missing or blocked AudioContext silently costs nothing.
+ */
 
 type CueShape = {
   startHz: number;
@@ -8,37 +20,31 @@ type CueShape = {
   type: OscillatorType;
 };
 
-const CUES: Record<UiCue, CueShape> = {
-  intel: { startHz: 620, endHz: 880, duration: 0.12, gain: 0.038, type: "sine" },
-  curious: { startHz: 360, endHz: 430, duration: 0.09, gain: 0.022, type: "sine" },
-  suspicious: { startHz: 315, endHz: 250, duration: 0.13, gain: 0.032, type: "triangle" },
-  alert: { startHz: 220, endHz: 165, duration: 0.18, gain: 0.04, type: "triangle" },
+/**
+ * One shape per cue. Rising intervals read as confirmations, falling ones as
+ * pressure, and gains stay low so nothing here competes with gameplay audio.
+ */
+const CUES: Record<PresentationCue, CueShape> = {
+  MISSION_INTRO: { startHz: 262, endHz: 392, duration: 0.42, gain: 0.03, type: "sine" },
+  MISSION_OBJECTIVE: { startHz: 494, endHz: 659, duration: 0.16, gain: 0.032, type: "sine" },
+  STAGE_RESOLVED: { startHz: 523, endHz: 784, duration: 0.2, gain: 0.034, type: "sine" },
+  INTEL_DISCOVERED: { startHz: 620, endHz: 880, duration: 0.12, gain: 0.038, type: "sine" },
+  OPTIONAL_COMPLETED: { startHz: 587, endHz: 784, duration: 0.14, gain: 0.03, type: "sine" },
+  OPPORTUNITY_USED: { startHz: 440, endHz: 587, duration: 0.13, gain: 0.03, type: "triangle" },
+  FACILITY_WATCH: { startHz: 360, endHz: 430, duration: 0.09, gain: 0.022, type: "sine" },
+  FACILITY_SEARCH: { startHz: 315, endHz: 250, duration: 0.13, gain: 0.032, type: "triangle" },
+  FACILITY_HIGH_ALERT: { startHz: 220, endHz: 165, duration: 0.18, gain: 0.04, type: "triangle" },
+  GADGET_READY: { startHz: 700, endHz: 932, duration: 0.09, gain: 0.026, type: "sine" },
 };
 
 export class UiAudioFeedback {
   private context: AudioContext | null = null;
   private unlocked = false;
   private volume = 0.75;
-  private previousIntelCount = 0;
-  private previousAwareness = "NORMAL";
-  private readonly intelObserver: MutationObserver;
-  private readonly awarenessObserver: MutationObserver;
+  private readonly stop: () => void;
 
-  constructor(
-    private readonly intelElement: HTMLElement,
-    private readonly awarenessElement: HTMLElement,
-  ) {
-    this.previousIntelCount = this.readIntelCount();
-    this.previousAwareness = awarenessElement.dataset.state ?? "NORMAL";
-
-    this.intelObserver = new MutationObserver(() => this.onIntelChanged());
-    this.intelObserver.observe(intelElement, { childList: true, characterData: true, subtree: true });
-
-    this.awarenessObserver = new MutationObserver(() => this.onAwarenessChanged());
-    this.awarenessObserver.observe(awarenessElement, {
-      attributes: true,
-      attributeFilter: ["data-state", "class"],
-    });
+  constructor() {
+    this.stop = onPresentation((event) => this.play(event.cue));
   }
 
   async unlock(): Promise<void> {
@@ -56,33 +62,7 @@ export class UiAudioFeedback {
     this.volume = Math.max(0, Math.min(1, volume));
   }
 
-  private onIntelChanged(): void {
-    const next = this.readIntelCount();
-    if (next > this.previousIntelCount) this.play("intel");
-    this.previousIntelCount = next;
-  }
-
-  private onAwarenessChanged(): void {
-    if (this.awarenessElement.classList.contains("hidden")) {
-      this.previousAwareness = "NORMAL";
-      return;
-    }
-
-    const next = this.awarenessElement.dataset.state ?? "NORMAL";
-    if (next === this.previousAwareness) return;
-    this.previousAwareness = next;
-
-    if (next === "CURIOUS") this.play("curious");
-    else if (next === "SUSPICIOUS") this.play("suspicious");
-    else if (next === "ALERT") this.play("alert");
-  }
-
-  private readIntelCount(): number {
-    const match = this.intelElement.textContent?.match(/INTEL\s+(\d+)/i);
-    return match ? Number(match[1]) || 0 : 0;
-  }
-
-  private play(cue: UiCue): void {
+  private play(cue: PresentationCue): void {
     const context = this.context;
     if (!this.unlocked || !context || this.volume <= 0 || context.state !== "running") return;
 
@@ -104,5 +84,9 @@ export class UiAudioFeedback {
     gain.connect(context.destination);
     oscillator.start(now);
     oscillator.stop(now + shape.duration + 0.01);
+  }
+
+  dispose(): void {
+    this.stop();
   }
 }

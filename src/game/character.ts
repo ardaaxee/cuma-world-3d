@@ -27,6 +27,23 @@ const MOVING_SPEED = 0.25;
 /** Matches the scene's own PBR materials so the hero sits in the same light. */
 const CHARACTER_ENVIRONMENT_INTENSITY = 0.72;
 
+/**
+ * Standing turn-to-camera. The gap must exceed ENTER before the body starts
+ * turning and must close to SETTLE before it stops, so looking around slightly
+ * never rotates the character and the turn cannot chatter at the boundary.
+ */
+const IDLE_TURN_ENTER = 1.0;
+const IDLE_TURN_SETTLE = 0.12;
+/** Deliberately slower than the movement-facing rate — a turn, not a snap. */
+const IDLE_TURN_RATE = 4.2;
+
+function shortestAngle(angle: number): number {
+  let delta = angle;
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
 export class PlayerCharacter {
   readonly collider: Mesh;
   readonly visualRoot: TransformNode;
@@ -35,6 +52,7 @@ export class PlayerCharacter {
   private readonly importedMeshes: Mesh[] = [];
   private readonly animation = new AnimationBlender();
   private readonly face = new FacialLifeLayer();
+  private idleTurning = false;
   private jumpAnimTimer = 0;
   private landingAnimTimer = 0;
   private imported = false;
@@ -89,10 +107,38 @@ export class PlayerCharacter {
 
   setFacing(yaw: number, dt: number): void {
     const current = this.visualRoot.rotation.y;
-    let delta = yaw - current;
-    while (delta > Math.PI) delta -= Math.PI * 2;
-    while (delta < -Math.PI) delta += Math.PI * 2;
-    this.visualRoot.rotation.y = current + delta * (1 - Math.exp(-13 * dt));
+    this.visualRoot.rotation.y = current + shortestAngle(yaw - current) * (1 - Math.exp(-13 * dt));
+    this.idleTurning = false;
+  }
+
+  /**
+   * Presentation-only turn for a standing player.
+   *
+   * Small camera movement must not swing the body, so the turn only starts once
+   * the gap is genuinely large and then runs until the body is nearly aligned —
+   * a hysteresis band rather than a threshold, which is what stops it
+   * stuttering on and off at the boundary. It eases rather than snapping.
+   *
+   * This writes nothing but the visual root's yaw: the capsule collider, the
+   * player's position, the noise model and mission logic are all untouched.
+   */
+  setIdleFacing(yaw: number, dt: number, allowed: boolean): void {
+    if (!allowed) {
+      this.idleTurning = false;
+      return;
+    }
+    const current = this.visualRoot.rotation.y;
+    const delta = shortestAngle(yaw - current);
+    const magnitude = Math.abs(delta);
+
+    if (!this.idleTurning) {
+      if (magnitude < IDLE_TURN_ENTER) return;
+      this.idleTurning = true;
+    } else if (magnitude < IDLE_TURN_SETTLE) {
+      this.idleTurning = false;
+      return;
+    }
+    this.visualRoot.rotation.y = current + delta * (1 - Math.exp(-IDLE_TURN_RATE * dt));
   }
 
   update(speed: number, dt: number, reducedMotion: boolean, inCover = false): void {
