@@ -47,6 +47,10 @@ Rules:
 - `src/game/cinematic-presentation.ts`: the one mission-intro presentation owner
 - `src/game/cinematic-timeline.ts`: pure intro timing/skip/completion state
 - `src/game/presentation-events.ts`: typed presentation cue contract
+- `src/game/audio.ts`: the one runtime audio owner (single AudioContext, buses, voice pool)
+- `src/game/audio-model.ts`: pure gait scheduler and mix model
+- `src/game/audio-surfaces.ts`: acoustic zone and surface classification
+- `src/game/audio-events.ts`: typed world-audio cue contract
 - `src/game/npc.ts`: NPC awareness/patrol/hearing/investigation/security communication
 - `src/game/security.ts`: CCTV gameplay
 - `src/game/cover.ts`: directional tactical cover
@@ -1054,3 +1058,222 @@ vibration or readability on a real phone.
   volume settings
 - gadget-ready cue frequency during heavy SCAN/JAM/DECOY use
 - feedback line legibility at LOW and under Reduced Motion
+
+## Milestone 07 — Layered Audio World + Spatial Stealth Feedback (verified)
+
+Gameplay commit `303491c`. One WebAudio owner replaces the HTMLAudioElement
+pair and the separate presentation context; the game now sounds like four
+distinct physical spaces instead of a city loop played everywhere.
+
+### Packaged asset audit (measured, not assumed)
+
+`ci/audit_audio_assets.py`, standard library only — no FFmpeg, nothing
+downloaded. All three assets come from the existing source archive.
+
+| File | Bytes | Ch | Rate | Depth | Frames | Duration |
+|---|---|---|---|---|---|---|
+| `city_ambience.wav` | 793,844 | 1 | 22,050 | 16 | 396,900 | 18.000 s |
+| `footstep_a.wav` | 5,114 | 1 | 22,050 | 16 | 2,535 | 0.115 s |
+| `footstep_b.wav` | 4,454 | 1 | 22,050 | 16 | 2,205 | 0.100 s |
+| **total** | **803,412** | | | | | |
+
+All mono PCM, which is what makes them usable as spatial sources. Budgets are
+derived from this baseline: 12 MB total, 6 MB per asset (warn at 2 MB),
+8–48 kHz, ≤2 channels, ≤120 s. Verified the audit **fails** on a malformed
+packaged WAV, a truncated header and `--require-packaged` with a file missing,
+and **passes** with a fallback report when an optional asset is simply absent.
+
+### Audio architecture and ownership
+
+`GameAudio` is the single runtime owner. **One AudioContext, created once**
+after the user gesture, guarded by an in-flight promise so repeated `unlock()`
+calls — including the one `syncRuntimePause()` makes on every resume — can
+never build a second context or a second ambience loop.
+
+Graph: master gain → five category buses (`world` 0.9, `player` 0.72,
+`presentation` 0.6, `ambience` 0.34, `tension` 0.3) → sources. Interaction and
+footsteps sit above the beds by construction, so ambience cannot mask gameplay.
+
+Dependency-free helpers, all unit-tested: `audio-model.ts` (gait + mix),
+`audio-surfaces.ts` (acoustics), `audio-events.ts` (typed world cues).
+
+**`UiAudioFeedback` was consolidated and deleted.** Its synthesis moved into
+`GameAudio`, so there is one context, one master volume owner, and `main.ts`
+unlocks one engine. Exactly one audible response per presentation cue.
+
+### Footstep gait scheduler
+
+Distance-based, replacing the speed-derived clock. Strides: CROUCH 0.62 m,
+WALK 0.78 m, RUN 1.12 m; movement threshold 0.45 m/s.
+
+- standing still and joystick jitter emit nothing
+- the same distance yields the same step count at any speed
+- a mode change **rescales banked distance into the new stride**, preserving
+  gait phase, so WALK↔RUN neither double-fires nor swallows a step
+- banked distance is capped at one stride, so a resumed tab or a pause cannot
+  dump a burst; the cinematic frame also clears it explicitly
+- variation reads two index-addressed tables — no `Math.random` in the path
+
+### Surfaces and acoustic zones
+
+`AcousticZone` = OUTDOOR / MARKET / BACK_OFFICE / LOADING, authored from the
+real geometry and classified by box test **on footstep emission and a 0.25 s
+mix tick** — never per frame, never by raycast.
+
+With only two samples, surfaces separate through playback rate, gain and
+low-pass: step filter 9000 Hz outdoors → 7000 loading → 6200 market → 4200 back
+office. A typed `AudioSurface` contract is exposed so real samples can drop in.
+
+### Ambience and facility tension
+
+City bed gain 1.0 outdoors → 0.74 loading → 0.46 market → 0.20 back office,
+with the low-pass closing 18 kHz → 4.2 kHz → 1.1 kHz → 520 Hz. A generated room
+tone fades in indoors (0 → 0.32). Everything crossfades; nothing cuts.
+
+A non-musical tension bed follows CALM 0 → WATCH 0.28 → SEARCH 0.62 →
+HIGH_ALERT 1.0, sits on a bus below the footstep bus, and fades back cleanly. It
+only tracks what the HUD already displays, so it cannot leak hidden information.
+Strong cues duck the beds by 0.55 for 0.35 s.
+
+### Spatial audio
+
+Bounded pool of **6 voices**, PannerNodes allocated once and reused; the policy
+reuses a free slot and otherwise steals the oldest, so rapid door/cart/gadget
+events cannot exceed the cap. Inverse attenuation, ref 2.5 m, max 26 m, rolloff
+1.35 — conservative for this small map. The listener follows the gameplay camera
+yaw and player position with **scalar writes only**, no vector allocation.
+
+Occlusion was deliberately **not** implemented: the cue set is short one-shots
+at conservative distances, and a ray per voice was not worth the cost. The
+architecture leaves room for a start-of-sound ray later.
+
+### Landing, doors, cart, gadgets
+
+- **Landing**: published from `PlayerCharacter.onLanded()`, the existing landing
+  truth. No second detector, no physics change. Every touchdown is audible,
+  scaled by impact; the gameplay `LANDING_NOISE_MIN_SPEED` gate below it is
+  untouched.
+- **Doors**: `DoorUseResult` gained `audioCue`/`audioAt` **separate from**
+  `noiseAt`. A refused door is audible but is not a noise event. The automatic
+  security close publishes audio and deliberately calls no noise reporter.
+- **Cart**: start/stop cues from the existing cart state; no new timer, no
+  physics. `CART_NOISE_LOUDNESS` remains the AI-hearing truth, unchanged.
+- **Gadgets**: SCAN pulse, JAM texture, DECOY spatial at the real decoy point.
+  Cooldowns and mechanics untouched; still exactly one `setInterval` in the file.
+
+### Pause / resume / unlock / mute
+
+`AudioContext.suspend()`/`resume()` on the single context, so resume restores
+exactly the loops that were running and a duplicate ambience is structurally
+impossible. Master volume applies at the master gain, so it covers every
+category. A blocked context or a decode failure leaves gameplay fully playable.
+
+### Gameplay-noise separation — proof
+
+`noise.ts` remains the sole authority on NPC hearing. Enforced by tests **and**
+by guards that were verified to actually fail:
+
+- the audio owner and all three helpers may not import `./noise` or call
+  `reportEnvironmentNoise(` / `reportPlayerMovement(` / `reportPlayerLanding(`
+- `noise.ts` may not reference `masterVolume`, `AudioContext` or `GameAudio`
+- a locked door carries `audioCue` with `noiseAt: null`
+- the security close block publishes audio and contains no noise call
+- landing audio precedes, and does not alter, the noise threshold
+
+So muting the game cannot make the player stealthier, and a missing WAV cannot
+remove gameplay footstep noise.
+
+### Tests
+
+| Suite | Checks |
+|---|---|
+| `ci/test_audio_runtime.mjs` | **104** |
+| `ci/test_presentation.mjs` | **96** |
+| `ci/test_mission_graph.mjs` | **117** |
+| `ci/test_character_runtime.mjs` | **53** |
+
+`ci/check_presentation_regressions.sh` gained six audio guards, each verified to
+fire on a reintroduced second AudioContext, an audio→noise import, `noise.ts`
+reading volume, `Math.random` in the gait, an audio timer, and audio reporting
+gameplay noise. Two stale Milestone 06 guards that asserted the old two-engine
+layout were updated rather than deleted.
+
+### Bundle and performance
+
+CI-to-CI, Milestone 06 run `33276421355` versus Milestone 07 run `33301321356`
+(both with the model and audio packaged):
+
+| | M06 (#135) | M07 (#136) | Delta |
+|---|---|---|---|
+| `bootstrap_js_bytes` | 24,711 | **22,979** | **−1,732** |
+| `largest_js_chunk_bytes` | 812,392 | 812,392 | **0** |
+| `total_js_bytes` | 7,439,643 | 7,448,663 | +9,020 |
+| `total_web_bytes` | 14,969,743 | 14,978,763 | +9,020 |
+| `audio_bytes` | (not reported) | **803,412** | — |
+| Artifact bytes | 23,737,975 | 23,744,254 | +6,279 |
+
+The boot chunk **shrank again** because `UiAudioFeedback` left it; the Milestone
+05 bootstrap reduction is intact and now 7% better than the M06 baseline.
+Babylon and the world graph remain out of bootstrap. All three budgets green.
+
+Runtime shape at idle: **1 AudioContext**, 1 master gain, 5 category buses,
+3 ambience/tension source nodes with 2 filters and 3 gains, and **6 preallocated
+spatial voices** (6 PannerNodes + 6 gains) — roughly 26 persistent nodes. Maximum
+concurrent spatial voices is 6 by construction. One-shots create and free their
+own nodes via `onended`. No second RAF, no per-source timer, no per-frame random,
+no per-frame buffer generation, no scene scan, no per-frame surface or occlusion
+ray.
+
+### CI verification
+
+Run `33301321356` (#136), `workflow_dispatch` on
+`303491c611f1d4076fc89cb8d915d325f306b3ab`, **completed SUCCESS**, all 15 steps
+green, 2m44s.
+
+Verified from the job log and artifact list, not the step-status API:
+
+- `AUDIO REPORT` printed in full, matching the local audit exactly
+  (3 packaged, 0 missing, 803,412 B)
+- `AUDIO_OK` from `--require-packaged` on both `public/assets/audio` **and**
+  `dist/assets/audio`, so the assets provably reach the Capacitor Android output
+- `AUDIO_RUNTIME_OK 104 checks passed`
+- `PRESENTATION_OK 96 checks passed`
+- `MISSION_GRAPH_OK 117 checks passed`
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `PRESENTATION_REGRESSION_GUARDS_OK`
+- `CHARACTER_GLB_OK` with the CHARACTER REPORT intact
+- `BUILD SUCCESSFUL in 1m 44s`
+- debug APK sha256 `0cb8824fb506bd678ad281596cdd1ee85433500c355a8cf52ba6ced1b0a96468`
+- Play AAB sha256 `f554123e5df3a1868843a681d2f3961ba8758430acd7503a66ef16a424ab6dd0`
+- `audio_assets=city_ambience.wav,footstep_a.wav,footstep_b.wav`, `audio_bytes=803412`
+- artifact `CUMA-WORLD-Android-Play-Build` id `9729061942`, 23,744,254 bytes,
+  digest `sha256:2a24aceb72bd96534352fa176b7352597133737803cb79ed9cd9c7219ea2972b`
+
+CI proves the build and the asset contract. It says nothing about speaker
+quality, stereo imaging, spatial feel or audio performance on a real phone.
+
+### Requires real-device testing from Milestone 07
+
+- whether the four acoustic zones are actually distinguishable through phone
+  speakers, and whether they survive headphones
+- whether the indoor/outdoor crossfade reads as a transition or as a level dip
+- whether the 22.05 kHz mono footsteps hold up at the surface playback rates,
+  especially the 0.92 low end in the back office
+- whether the distance-based gait feels locked to the legs at all three speeds
+- whether the stride lengths suit the actual movement speeds on device
+- whether the generated room tone is audible at all on a phone speaker, or only
+  on headphones
+- whether the tension bed is perceptible at WATCH and not oppressive at
+  HIGH_ALERT, and whether footsteps stay readable underneath it
+- spatial panning quality with `equalpower` on mobile; whether `HRTF` is worth
+  the cost on higher tiers
+- whether the 26 m max distance is right — currently untested against how far
+  sound should carry in the back of house
+- whether occlusion is missed in practice (a cart heard clearly through a wall)
+- Android audio focus: an incoming call, another app taking focus, and the
+  headphone jack/Bluetooth being pulled mid-run
+- whether `AudioContext.suspend()`/`resume()` behaves on real Android WebView
+  across background/foreground cycles, and latency on resume
+- first-unlock latency: whether the 803 KB ambience decode delays the intro
+- whether audio survives the WebGL context-loss pause path
+- battery/thermal cost of the audio graph over a long session on LOW
