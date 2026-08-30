@@ -1,6 +1,7 @@
 import { type AbstractMesh, EngineStore, Mesh, Ray, type Scene, Vector3 } from "@babylonjs/core";
 import "../cover.css";
 import "./gadgets";
+import { emitHaptic } from "./haptics";
 import { isCrouched } from "./input";
 
 /**
@@ -204,7 +205,7 @@ class TacticalCoverSystem {
       state.active = !state.active;
       if (state.active) this.lastProbeAt = 0;
       else state.contact = false;
-      if (typeof navigator.vibrate === "function") navigator.vibrate(state.active ? 14 : 8);
+      emitHaptic(state.active ? 14 : 8);
       this.syncUi();
     });
 

@@ -163,7 +163,10 @@ jobs:
           # real usage (`new MutationObserver`, an active `.match(`) so the
           # modules may still explain in comments what they no longer do.
           bash ci/check_presentation_regressions.sh
-          grep -q 'InteractionPromptGuard' src/main.ts
+          grep -q 'setInteractionAvailable' src/game/input.ts
+          grep -q 'setObservationActive' src/game/input.ts
+          test ! -f src/game/input.ts.bak
+          test ! -f src/game/input.js
           grep -q 'investigateTimer' src/game/npc.ts
           grep -q 'senseInterval' src/game/npc.ts
           grep -q 'private enabled = true' src/game/npc.ts
@@ -193,6 +196,7 @@ jobs:
           node ci/test_presentation.mjs
           node ci/test_audio_runtime.mjs
           node ci/test_progression.mjs
+          node ci/test_mobile_ux.mjs
 
       - name: Create native Android project
         shell: bash

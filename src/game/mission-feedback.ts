@@ -5,6 +5,7 @@ import {
   onPresentation,
   presentationWeight,
 } from "./presentation-events";
+import { emitHaptic } from "./haptics";
 
 /**
  * The transient mission feedback line.
@@ -112,8 +113,7 @@ export class MissionFeedback {
   }
 
   private vibrate(pattern: readonly number[]): void {
-    if (document.visibilityState !== "visible") return;
-    if (typeof navigator.vibrate === "function") navigator.vibrate([...pattern]);
+    emitHaptic(pattern);
   }
 
   dispose(): void {

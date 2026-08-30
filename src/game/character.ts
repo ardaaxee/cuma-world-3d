@@ -16,6 +16,7 @@ import { publishLocalAudio } from "./audio-events";
 import { type CharacterAnimationState, hasRequiredStates, resolveAnimationGroups } from "./character-animation";
 import { AnimationBlender } from "./character-blender";
 import { FacialLifeLayer } from "./character-face";
+import { emitHaptic } from "./haptics";
 import { consumeJumpPressed, CROUCH_SPEED_MULTIPLIER, isCrouched, isRunHeld, RUN_SPEED_MULTIPLIER } from "./input";
 import { LANDING_NOISE_MIN_SPEED, reportPlayerLanding } from "./noise";
 
@@ -256,8 +257,7 @@ export class PlayerCharacter {
   }
 
   private emitHaptic(pattern: number[]): void {
-    if (document.visibilityState !== "visible") return;
-    if (typeof navigator.vibrate === "function") navigator.vibrate(pattern);
+    emitHaptic(pattern);
   }
 
   private detectGround(): boolean {

@@ -6,9 +6,9 @@ import "./mission-feedback.css";
 import "./route-status.css";
 import "./graphics-effects.css";
 import { MissionDebrief } from "./game/debrief";
-import { InteractionPromptGuard } from "./game/interaction-prompt-guard";
 import { MissionFeedback } from "./game/mission-feedback";
 import { masteryProgress, readProgression } from "./game/progression";
+import { hapticTap, setHapticsEnabled } from "./game/haptics";
 import {
   DEFAULT_GRAPHICS,
   type AdaptiveQualitySetting,
@@ -33,6 +33,8 @@ import {
   type GameplayPreferences,
   type HudMode,
   type LookSensitivity,
+  type ControlHandedness,
+  type ControlSize,
   loadGameplayPreferences,
   saveGameplayPreferences,
 } from "./game/preferences";
@@ -43,6 +45,9 @@ type RuntimeApi = {
   unlockAudio(): Promise<void>;
   setLookSensitivity(value: number): void;
   setAudioVolume(value: number): void;
+  setHapticsEnabled(value: boolean): void;
+  setInvertLookY(value: boolean): void;
+  resetTransientInput(): void;
   applyGraphicsPreferences(preferences: GraphicsPreferences): ResolvedGraphicsProfile;
 };
 
@@ -82,8 +87,11 @@ const performanceMeter = required<HTMLElement>("#performance-meter");
 const lookSensitivitySelect = required<HTMLSelectElement>("#look-sensitivity");
 const audioVolumeSelect = required<HTMLSelectElement>("#audio-volume");
 const hudModeSelect = required<HTMLSelectElement>("#hud-mode");
+const controlSizeSelect = required<HTMLSelectElement>("#control-size");
+const controlHandednessSelect = required<HTMLSelectElement>("#control-handedness");
+const invertLookYToggle = required<HTMLInputElement>("#invert-look-y");
+const hapticsToggle = required<HTMLInputElement>("#haptics-enabled");
 const intelStatus = required<HTMLElement>("#intel");
-const interactionStatus = required<HTMLElement>("#interaction");
 const debriefOverlay = required<HTMLElement>("#mission-debrief");
 const debriefRank = required<HTMLElement>("#debrief-rank");
 const debriefScore = required<HTMLElement>("#debrief-score");
@@ -111,8 +119,8 @@ function syncRuntimePause(): void {
 
 // MissionFeedback consumes typed presentation cues; the audible half of those
 // cues is owned by GameAudio inside the runtime, so there is one AudioContext
-// and one volume owner for the whole game.
-new InteractionPromptGuard(intelStatus, interactionStatus);
+// and one volume owner for the whole game. Context action availability is
+// published explicitly by runtime state, never recovered from HUD text.
 new MissionFeedback();
 new MissionDebrief(
   debriefOverlay,
@@ -250,6 +258,12 @@ function syncGameplayControls(preferences: GameplayPreferences): void {
   lookSensitivitySelect.value = String(preferences.lookSensitivity);
   audioVolumeSelect.value = String(preferences.audioVolume);
   hudModeSelect.value = preferences.hudMode;
+  controlSizeSelect.value = preferences.controlSize;
+  controlHandednessSelect.value = preferences.controlHandedness;
+  invertLookYToggle.checked = preferences.invertLookY;
+  hapticsToggle.checked = preferences.hapticsEnabled;
+  document.body.dataset.controlSize = preferences.controlSize;
+  document.body.dataset.controlHandedness = preferences.controlHandedness;
 }
 
 function readGameplayPreferences(): GameplayPreferences {
@@ -257,14 +271,24 @@ function readGameplayPreferences(): GameplayPreferences {
     lookSensitivity: Number(lookSensitivitySelect.value) as LookSensitivity,
     audioVolume: Number(audioVolumeSelect.value) as AudioVolume,
     hudMode: hudModeSelect.value as HudMode,
+    controlSize: controlSizeSelect.value as ControlSize,
+    controlHandedness: controlHandednessSelect.value as ControlHandedness,
+    invertLookY: invertLookYToggle.checked,
+    hapticsEnabled: hapticsToggle.checked,
   };
 }
 
 function applyGameplayPreferences(): void {
   const preferences = readGameplayPreferences();
   saveGameplayPreferences(preferences);
+  setHapticsEnabled(preferences.hapticsEnabled);
+  document.body.dataset.controlSize = preferences.controlSize;
+  document.body.dataset.controlHandedness = preferences.controlHandedness;
+  runtime?.resetTransientInput();
   runtime?.setLookSensitivity(preferences.lookSensitivity);
   runtime?.setAudioVolume(preferences.audioVolume);
+  runtime?.setHapticsEnabled(preferences.hapticsEnabled);
+  runtime?.setInvertLookY(preferences.invertLookY);
   activeHudMode = preferences.hudMode;
   document.body.classList.toggle("hud-compact", activeHudMode === "COMPACT");
   wakeHud();
@@ -273,6 +297,7 @@ function applyGameplayPreferences(): void {
 
 function openSettings(): void {
   wakeHud();
+  runtime?.resetTransientInput();
   settingsPanel.classList.remove("hidden");
   document.body.classList.add("settings-open");
   settingsPauseActive = true;
@@ -381,14 +406,22 @@ for (const element of [
 ]) {
   element.addEventListener("change", applyGraphicsPreferences);
 }
-for (const element of [lookSensitivitySelect, audioVolumeSelect, hudModeSelect]) {
+for (const element of [
+  lookSensitivitySelect,
+  audioVolumeSelect,
+  hudModeSelect,
+  controlSizeSelect,
+  controlHandednessSelect,
+  invertLookYToggle,
+  hapticsToggle,
+]) {
   element.addEventListener("change", applyGameplayPreferences);
 }
 
 graphicsReset.addEventListener("click", () => {
   syncGraphicsControls({ ...DEFAULT_GRAPHICS });
   applyGraphicsPreferences();
-  if (typeof navigator.vibrate === "function") navigator.vibrate(12);
+  hapticTap();
 });
 
 settingsOpen.addEventListener("click", openSettings);
@@ -399,14 +432,17 @@ window.addEventListener("keydown", (event) => {
 
 document.addEventListener("visibilitychange", () => {
   lifecyclePauseActive = document.hidden;
+  if (document.hidden) runtime?.resetTransientInput();
   syncRuntimePause();
 });
 window.addEventListener("pagehide", () => {
   lifecyclePauseActive = true;
+  runtime?.resetTransientInput();
   syncRuntimePause();
 });
 window.addEventListener("pageshow", () => {
   lifecyclePauseActive = document.hidden;
+  runtime?.resetTransientInput();
   syncRuntimePause();
 });
 canvas.addEventListener("webglcontextlost", (event) => {
@@ -443,6 +479,8 @@ enter.addEventListener("click", async () => {
     const gameplay = readGameplayPreferences();
     activeRuntime.setLookSensitivity(gameplay.lookSensitivity);
     activeRuntime.setAudioVolume(gameplay.audioVolume);
+    activeRuntime.setHapticsEnabled(gameplay.hapticsEnabled);
+    activeRuntime.setInvertLookY(gameplay.invertLookY);
     activeRuntime.start();
     syncRuntimePause();
 

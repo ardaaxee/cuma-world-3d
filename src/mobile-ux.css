@@ -1,0 +1,149 @@
+/*
+ * Mobile controls are sized by real layout dimensions, not transforms. The
+ * safe corridor leaves the look surface between the two control clusters so a
+ * look pointer cannot acquire a joystick/action hit target.
+ */
+.mobile-controls {
+  --joystick-size: 112px;
+  --knob-size: 44px;
+  --action-size: 44px;
+  --action-gap: 7px;
+  --action-width: 204px;
+  --control-clearance: 116px;
+}
+
+body[data-control-size="COMPACT"] .mobile-controls {
+  --joystick-size: 94px;
+  --knob-size: 38px;
+  --action-size: 38px;
+  --action-gap: 5px;
+  --action-width: 184px;
+  --control-clearance: 104px;
+}
+
+body[data-control-size="LARGE"] .mobile-controls {
+  --joystick-size: 132px;
+  --knob-size: 52px;
+  --action-size: 50px;
+  --action-gap: 9px;
+  --action-width: 232px;
+  --control-clearance: 132px;
+}
+
+.mobile-controls .joystick {
+  width: var(--joystick-size);
+  height: var(--joystick-size);
+}
+
+.mobile-controls .joystick-knob {
+  width: var(--knob-size);
+  height: var(--knob-size);
+  margin: calc(var(--knob-size) / -2);
+}
+
+.mobile-controls .actions {
+  width: var(--action-width);
+  gap: var(--action-gap);
+}
+
+.mobile-controls .action {
+  min-height: var(--action-size) !important;
+}
+
+.mobile-controls .look-zone {
+  left: max(var(--control-clearance), env(safe-area-inset-left));
+  right: max(var(--control-clearance), env(safe-area-inset-right));
+  width: auto;
+}
+
+body[data-control-handedness="LEFT"] .mobile-controls .joystick {
+  left: auto;
+  right: max(14px, env(safe-area-inset-right));
+}
+
+body[data-control-handedness="LEFT"] .mobile-controls .actions {
+  left: max(14px, env(safe-area-inset-left));
+  right: auto;
+}
+
+body[data-control-handedness="LEFT"] .mobile-controls .look-zone {
+  left: max(var(--control-clearance), env(safe-area-inset-left));
+  right: max(var(--control-clearance), env(safe-area-inset-right));
+}
+
+/* 640x360 and other short landscape screens: preserve separation and hit
+ * targets while clamping the effective layout without rewriting preferences. */
+@media (orientation: landscape) and (max-height: 380px) {
+  .mobile-controls {
+    --joystick-size: 94px;
+    --knob-size: 38px;
+    --action-size: 38px;
+    --action-gap: 5px;
+    --action-width: 194px;
+    --control-clearance: 104px;
+  }
+  body[data-control-size="COMPACT"] .mobile-controls {
+    --joystick-size: 88px;
+    --knob-size: 36px;
+    --action-size: 36px;
+    --action-width: 184px;
+    --control-clearance: 96px;
+  }
+  body[data-control-size="LARGE"] .mobile-controls {
+    --joystick-size: 100px;
+    --knob-size: 40px;
+    --action-size: 40px;
+    --action-width: 204px;
+    --control-clearance: 108px;
+  }
+  .mobile-controls .action {
+    font-size: 8px !important;
+    padding-inline: 7px !important;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 330px) {
+  .mobile-controls {
+    --joystick-size: 84px;
+    --knob-size: 34px;
+    --action-size: 36px;
+    --action-gap: 4px;
+    --action-width: 184px;
+    --control-clearance: 92px;
+  }
+}
+
+@media (orientation: portrait) {
+  .mobile-controls .look-zone {
+    left: 34%;
+    right: 0;
+  }
+  body[data-control-handedness="LEFT"] .mobile-controls .look-zone {
+    left: 0;
+    right: 34%;
+  }
+}
+
+/* Settings is a modal pause surface; no gameplay control below it is hit-test
+ * eligible while it is open. */
+body.settings-open .mobile-controls {
+  pointer-events: none;
+}
+
+.settings-panel .setting-row select,
+.settings-panel .setting-row input[type="checkbox"],
+.settings-panel .settings-close {
+  touch-action: manipulation;
+}
+
+@media (orientation: landscape) and (max-height: 430px) {
+  .settings-panel .setting-row {
+    min-height: 48px;
+  }
+  .settings-panel .setting-row strong {
+    font-size: 11px;
+  }
+  .settings-panel .setting-row small {
+    font-size: 8px;
+  }
+}

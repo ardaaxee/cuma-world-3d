@@ -10,6 +10,12 @@ import {
 } from "@babylonjs/core";
 import "../operation-depth.css";
 import "./world-expansion";
+import { hapticConfirm } from "./haptics";
+import {
+  MOBILE_CONTEXT_STATE_EVENT,
+  publishMobileContextState,
+  type MobileContextState,
+} from "./input";
 
 /** Matches the runtime interaction resolver's origin and reach. */
 const TERMINAL_EYE_OFFSET = 0.62;
@@ -35,6 +41,8 @@ class OperationDepthSystem {
   private targets: OperationTarget[] = [];
   private currentAction: OperationAction | null = null;
   private ownsPrompt = false;
+  private promptAvailable = false;
+  private observationActive = false;
   private lastStep = "";
 
   constructor() {
@@ -43,6 +51,16 @@ class OperationDepthSystem {
     document.body.appendChild(this.progress);
 
     this.interactButton?.addEventListener("pointerdown", this.onInteract, { capture: true });
+    window.addEventListener(MOBILE_CONTEXT_STATE_EVENT, (event: Event) => {
+      const state = (event as CustomEvent<MobileContextState>).detail;
+      if (typeof state?.observationActive !== "boolean") return;
+      this.observationActive = state.observationActive;
+      if (!this.observationActive) return;
+      this.currentAction = null;
+      this.ownsPrompt = false;
+      this.interaction?.classList.add("hidden");
+      this.setPromptAvailable(false);
+    });
     requestAnimationFrame(this.waitForScene);
   }
 
@@ -108,6 +126,13 @@ class OperationDepthSystem {
     if (step !== "access" && step !== "manifest") {
       this.currentAction = null;
       this.ownsPrompt = false;
+      this.setPromptAvailable(false);
+      return;
+    }
+    if (this.observationActive) {
+      this.currentAction = null;
+      this.ownsPrompt = false;
+      this.setPromptAvailable(false);
       return;
     }
 
@@ -128,6 +153,7 @@ class OperationDepthSystem {
     if (!hit?.hit) {
       this.currentAction = null;
       this.ownsPrompt = false;
+      this.setPromptAvailable(false);
       return;
     }
 
@@ -136,8 +162,7 @@ class OperationDepthSystem {
     this.interaction.textContent = target.label;
     this.interaction.classList.remove("hidden");
     this.interaction.style.removeProperty("display");
-    this.interaction.dataset.actionable = "true";
-    document.body.classList.add("interaction-ready");
+    this.setPromptAvailable(true);
   };
 
   private readonly onInteract = (event: PointerEvent): void => {
@@ -145,10 +170,17 @@ class OperationDepthSystem {
     event.preventDefault();
     event.stopImmediatePropagation();
     window.dispatchEvent(new CustomEvent<OperationAction>("cuma-operation-action", { detail: this.currentAction }));
-    if (typeof navigator.vibrate === "function") navigator.vibrate([14, 26, 14]);
+    hapticConfirm();
     this.currentAction = null;
     this.ownsPrompt = false;
+    this.setPromptAvailable(false);
   };
+
+  private setPromptAvailable(available: boolean): void {
+    if (this.promptAvailable === available) return;
+    this.promptAvailable = available;
+    publishMobileContextState({ interactionAvailable: available });
+  }
 
   private updateProgress(step: string): void {
     const activeMission = step === "access" || step === "manifest" || step === "verify" || step === "done";

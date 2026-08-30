@@ -40,6 +40,8 @@ import {
 import { publishWorldAudio } from "./audio-events";
 import { CinematicPresentation } from "./cinematic-presentation";
 import { MobileInput, consumeJumpPressed, isCrouched, isJumpQueued, isRunHeld } from "./input";
+import { applyLookY } from "./mobile-ux";
+import { hapticConfirm, hapticTap, setHapticsEnabled } from "./haptics";
 import { publishPresentation } from "./presentation-events";
 // Installs the staged ACCESS/MANIFEST terminals. It lives here rather than in
 // mission.ts so the mission graph stays free of the Babylon world graph.
@@ -176,6 +178,7 @@ export class GameRuntime {
   private paused = false;
   private lastRenderedAt = 0;
   private lookSensitivity = 1;
+  private invertLookY = false;
   private shoulderSide = 1;
   private shoulderBlend = 1;
   private coverCameraBlend = 0;
@@ -306,7 +309,10 @@ export class GameRuntime {
       this.scene.render();
     });
     window.addEventListener("resize", () => this.engine.resize());
-    window.addEventListener("orientationchange", () => window.setTimeout(() => this.engine.resize(), 120));
+    window.addEventListener("orientationchange", () => {
+      this.input.reset();
+      window.requestAnimationFrame(() => this.engine.resize());
+    });
   }
 
   setPaused(paused: boolean): void {
@@ -314,6 +320,12 @@ export class GameRuntime {
     this.audio.setPaused(paused);
     setCoverPaused(paused);
     if (paused) {
+      this.input.reset();
+      this.velocity.setAll(0);
+      this.input.setInteractionAvailable(false);
+      this.input.setObservationActive(false);
+      this.observation = false;
+      document.body.classList.remove("recon-active");
       // Backgrounding is the one moment measured time could be lost, so the
       // checkpoint is flushed here rather than waiting for the next cadence.
       this.mission.flushRunTime();
@@ -337,6 +349,18 @@ export class GameRuntime {
 
   setAudioVolume(value: number): void {
     this.audio.setMasterVolume(value);
+  }
+
+  setHapticsEnabled(value: boolean): void {
+    setHapticsEnabled(value);
+  }
+
+  setInvertLookY(value: boolean): void {
+    this.invertLookY = value;
+  }
+
+  resetTransientInput(): void {
+    this.input.reset();
   }
 
   getGraphicsPreferences(): GraphicsPreferences {
@@ -423,7 +447,10 @@ export class GameRuntime {
   private update(dt: number): void {
     const frame = this.input.frame();
     this.yaw -= frame.lookX * 0.00235 * this.lookSensitivity;
-    this.pitch = Math.max(-0.62, Math.min(0.48, this.pitch - frame.lookY * 0.00185 * this.lookSensitivity));
+    this.pitch = Math.max(
+      -0.62,
+      Math.min(0.48, this.pitch - applyLookY(frame.lookY, this.invertLookY) * 0.00185 * this.lookSensitivity),
+    );
 
     const forward = new Vector3(Math.sin(this.yaw), 0, Math.cos(this.yaw));
     const right = new Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
@@ -538,6 +565,8 @@ export class GameRuntime {
         this.observedMesh = null;
         this.observationEl.classList.add("hidden");
         document.body.classList.toggle("recon-active", this.observation);
+        this.input.setObservationActive(this.observation);
+        if (this.observation) this.setInteractionLabel("");
       }
     }
     if (awarenessActive && this.observation) {
@@ -545,6 +574,8 @@ export class GameRuntime {
       this.observedMesh = null;
       this.observationEl.classList.add("hidden");
       document.body.classList.remove("recon-active");
+      this.input.setObservationActive(false);
+      this.setInteractionLabel("");
     }
 
     if (this.observation) this.updateObservation(dt);
@@ -692,7 +723,7 @@ export class GameRuntime {
         const at = result.audioAt;
         publishWorldAudio(result.audioCue, at.x, at.y, at.z, 1);
       }
-      if (result.changed && typeof navigator.vibrate === "function") navigator.vibrate(12);
+      if (result.changed) hapticTap();
       return;
     }
 
@@ -709,14 +740,14 @@ export class GameRuntime {
     // alternate solution completing a stage its sibling already finished.
     const resolution = RESOLUTION_INTERACTIONS[meta.interaction ?? ""];
     if (resolution && this.mission.resolveStage(resolution)) {
-      if (typeof navigator.vibrate === "function") navigator.vibrate([14, 26, 14]);
+      hapticConfirm();
       return;
     }
 
     const objective = OBJECTIVE_INTERACTIONS[meta.interaction ?? ""];
     if (objective && this.mission.completeOptionalObjective(objective)) {
       showDoorStatus(objective === "shift_pattern" ? "VARDİYA ÇİZELGESİ ALINDI" : "İKİNCİL ARŞİV ALINDI", 2.2);
-      if (typeof navigator.vibrate === "function") navigator.vibrate([12, 22, 12]);
+      hapticConfirm();
       return;
     }
 
@@ -784,7 +815,7 @@ export class GameRuntime {
     if (!at) return;
     this.mission.useOpportunity("delivery_cart");
     reportEnvironmentNoise(at.x, at.y, at.z, CART_NOISE_LOUDNESS);
-    if (typeof navigator.vibrate === "function") navigator.vibrate(10);
+    hapticTap();
   }
 
   /**
@@ -833,7 +864,7 @@ export class GameRuntime {
     relaxFacilityHeat(SOCIAL_FACILITY_RELIEF);
     this.socialCooldown = SOCIAL_COOLDOWN;
     this.setInteractionLabel("");
-    if (typeof navigator.vibrate === "function") navigator.vibrate([10, 30, 10]);
+    hapticConfirm();
   }
 
   /**
@@ -848,7 +879,7 @@ export class GameRuntime {
     if (!this.npcSystem.openStaffRoutineWindow(STAFF_ROUTINE_WINDOW_SECONDS)) return true;
     this.mission.useOpportunity("staff_routine_window");
     this.setInteractionLabel("");
-    if (typeof navigator.vibrate === "function") navigator.vibrate([10, 24, 10]);
+    hapticConfirm();
     return true;
   }
 
@@ -899,7 +930,7 @@ export class GameRuntime {
     }
 
     if (!activateFieldFocus(this.scene, targets)) return;
-    if (typeof navigator.vibrate === "function") navigator.vibrate(8);
+    hapticTap();
   }
 
   /**
@@ -959,6 +990,7 @@ export class GameRuntime {
   private setInteractionLabel(label: string): void {
     if (label === this.interactionLabel) return;
     this.interactionLabel = label;
+    this.input.setInteractionAvailable(Boolean(label));
     if (!label) {
       this.interactionEl.classList.add("hidden");
       return;

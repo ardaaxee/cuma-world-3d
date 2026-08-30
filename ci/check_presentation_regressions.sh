@@ -173,6 +173,35 @@ done
 forbid_observer src/game/progression.ts
 forbid_text_scraping src/game/progression.ts
 
+# --- Milestone 09 mobile UX guards ----------------------------------------
+# MobileInput owns all transient gameplay pointers. It must not infer
+# interaction/observation state by watching display DOM mutations.
+if grep -Eq 'new[[:space:]]+MutationObserver' src/game/input.ts; then
+  fail "src/game/input.ts constructs a MutationObserver; mobile context state must be explicit"
+fi
+if grep -Eq '(textContent|innerText)[^;]*\.match\(|^[^*]*\btext\.match\(' src/game/input.ts; then
+  fail "src/game/input.ts scrapes HUD text; mobile context state must be explicit"
+fi
+
+# Haptics have one owner so OFF can silence every game vibration without
+# changing gameplay. The owner itself is allowed to call navigator.vibrate.
+haptic_callers="$(grep -rlE 'navigator\.vibrate[[:space:]]*\(' src/ src/main.ts 2>/dev/null | sort || true)"
+if [ "$haptic_callers" != "src/game/haptics.ts" ]; then
+  fail "navigator.vibrate must be called only by src/game/haptics.ts; found: ${haptic_callers:-none}"
+fi
+if [ "$(grep -cE 'navigator\.vibrate[[:space:]]*\(' src/game/haptics.ts || true)" != "1" ]; then
+  fail "src/game/haptics.ts must contain exactly one vibration call"
+fi
+
+# Mobile UX helpers stay dependency-free and must not start recurring work.
+if grep -Eq 'requestAnimationFrame\(|setInterval\(|setTimeout\(' src/game/mobile-ux.ts; then
+  fail "src/game/mobile-ux.ts starts a loop/timer; mobile input must be event-driven"
+fi
+if [ "$(grep -Roh 'id="joystick"' index.html | wc -l | tr -d ' ')" != "1" ] \
+  || [ "$(grep -Roh 'id="look-zone"' index.html | wc -l | tr -d ' ')" != "1" ]; then
+  fail "mobile control markup must not be duplicated"
+fi
+
 if [ "$status" -eq 0 ]; then
   echo "PRESENTATION_REGRESSION_GUARDS_OK"
 fi

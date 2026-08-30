@@ -238,6 +238,25 @@
           <option value="FULL">FULL</option>
         </select>
       </label>
+       <label class="setting-row">
+         <span><strong>Kontrol boyutu</strong><small>Joystick ve dokunma hedeflerinin gerçek ölçüsü</small></span>
+         <select id="control-size">
+           <option value="COMPACT">COMPACT</option>
+           <option value="STANDARD">STANDARD</option>
+           <option value="LARGE">LARGE</option>
+         </select>
+       </label>
+       <label class="setting-row">
+         <span><strong>El tercihi</strong><small>Joystick ve aksiyon kümesini sol/sağ tarafa alır</small></span>
+         <select id="control-handedness">
+           <option value="RIGHT">SAĞ</option>
+           <option value="LEFT">SOL</option>
+         </select>
+       </label>
+       <label class="setting-row toggle-row">
+         <span><strong>Dikey kamera ters</strong><small>Yukarı/aşağı bakış yönünü ters çevirir</small></span>
+         <input id="invert-look-y" type="checkbox" />
+       </label>
 
       <div class="settings-section-title">SES</div>
       <label class="setting-row">
@@ -255,6 +274,10 @@
         <span><strong>Reduced Motion</strong><small>Kamera hareketlerini azaltır</small></span>
         <input id="reduced-motion" type="checkbox" />
       </label>
+       <label class="setting-row toggle-row">
+         <span><strong>Haptics</strong><small>Dokunsal oyun ve görev geri bildirimi</small></span>
+         <input id="haptics-enabled" type="checkbox" />
+       </label>
 
       <div class="settings-section-title">CİHAZ / DESTEK</div>
       <div id="graphics-capabilities" class="graphics-capabilities">Cihaz özellikleri okunuyor…</div>

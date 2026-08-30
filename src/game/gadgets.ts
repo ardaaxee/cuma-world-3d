@@ -8,6 +8,7 @@ import {
 } from "@babylonjs/core";
 import "../gadgets.css";
 import { publishLocalAudio, publishWorldAudio } from "./audio-events";
+import { hapticConfirm, hapticTap } from "./haptics";
 import { publishPresentation } from "./presentation-events";
 
 type GadgetId = "scan" | "jam" | "decoy";
@@ -82,7 +83,7 @@ class GadgetToolkit {
       this.panel.classList.toggle("hidden", !opening);
       this.trigger.classList.toggle("active", opening);
       this.trigger.setAttribute("aria-expanded", String(opening));
-      if (typeof navigator.vibrate === "function") navigator.vibrate(7);
+      hapticTap();
     });
 
     document.addEventListener("pointerdown", (event) => {
@@ -113,7 +114,8 @@ class GadgetToolkit {
     if (!used) return;
 
     this.readyAt.set(config.id, now + config.cooldownMs);
-    if (typeof navigator.vibrate === "function") navigator.vibrate(config.id === "jam" ? [16, 20, 16] : 12);
+    if (config.id === "jam") hapticConfirm();
+    else hapticTap();
     this.closePanel();
     this.refresh();
   }

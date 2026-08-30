@@ -1604,3 +1604,91 @@ about whether any of this is any good on a phone:
 - background the app mid-run and confirm the operation time does not jump
 - carry an old pre-Milestone-08 save through to the debrief and confirm the time
   shows `—` rather than 0:00
+
+## Milestone 09 — Mobile UX + Controls + Accessibility (implemented)
+
+Milestone 09 is the final scope of this pass. Milestone 10 was not started.
+The implementation stays on `claude/full-game-development`; `main` was not
+modified and no pull request was opened.
+
+### Mobile input ownership
+
+- `src/game/input.ts` remains the single authoritative mobile input owner.
+- `PointerOwnership` in `src/game/mobile-ux.ts` gives joystick, look, RUN,
+  JUMP, CROUCH, OBSERVE and INTERACT independent pointer ownership.
+- Joystick + look + action touches coexist; a duplicate pointer or a second
+  pointer for the same control is rejected without disturbing the existing
+  owner.
+- `pointercancel`, `lostpointercapture`, blur, page hide, background, pause,
+  settings open and orientation change clear transient pointers, look deltas,
+  queued JUMP and held RUN state.
+- RUN remains hold, JUMP remains one-shot, and CROUCH remains toggle.
+- Interaction and observation availability are explicit typed context signals;
+  `MobileInput` no longer constructs a `MutationObserver` or parses HUD text.
+
+### Settings and accessibility
+
+The existing `cuma_world_gameplay_preferences_v1` key is unchanged. Old
+three-field JSON migrates independently to these defaults:
+
+```text
+hapticsEnabled: true
+controlSize: STANDARD
+controlHandedness: RIGHT
+invertLookY: false
+```
+
+The settings panel now persists Haptics, COMPACT/STANDARD/LARGE controls, LEFT/
+RIGHT handedness and invert-Y. Handedness changes layout with CSS variables;
+control size changes real hit-target dimensions, not only visual transforms.
+Short landscape viewports clamp the effective layout while preserving the
+stored choice and safe-area separation. Invert-Y is applied exactly once at
+the runtime camera-pitch boundary; sensitivity remains applied once.
+
+`src/game/haptics.ts` is the only `navigator.vibrate` owner. The haptics gate
+silences landing, cover, gadget, mission, operation and graphics feedback
+without changing gameplay or adding a loop/timer.
+
+### Verification
+
+Focused mobile contract coverage is `MOBILE_UX_OK 43 checks passed`.
+The pre-existing contracts also passed:
+
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `MISSION_GRAPH_OK 117 checks passed`
+- `PRESENTATION_OK 96 checks passed`
+- `AUDIO_RUNTIME_OK 104 checks passed`
+- `PROGRESSION_OK 234 checks passed`
+- `PRESENTATION_REGRESSION_GUARDS_OK`
+- `npm run build`
+
+Native generation with `npm run android:add` succeeded and produced the
+ignored `android/` project. `npm run android:aab` reached Capacitor sync but
+could not run Gradle because this environment has no Java executable:
+`JAVA_HOME is not set and no 'java' command could be found`. No APK, AAB or
+artifact is claimed from this environment.
+
+### Bundle measurements
+
+The verified Milestone 08 CI #137 baseline was bootstrap JS `33,894` bytes,
+largest chunk `812,392` bytes, total JS `7,461,907` bytes, total web
+`14,993,803` bytes and artifact `23,752,024` bytes.
+
+This branch's local before/after measurements were:
+
+| | before M09 | after M09 | delta |
+|---|---:|---:|---:|
+| bootstrap JS | 33,919 | 33,687 | −232 |
+| largest chunk | 809,372 | 809,372 | 0 |
+| total JS | 7,077,206 | 7,079,728 | +2,522 |
+| total web | 7,129,975 | 7,136,018 | +6,043 |
+
+The local totals are not directly comparable to the CI #137 totals because
+the local build does not include the CI artifact packaging step. All local
+budgets remained green; the largest chunk stayed unchanged.
+
+### Device status
+
+`REAL DEVICE NOT VERIFIED`. No emulator, Android device, APK or AAB was
+available in this environment. Next work should begin only after this
+Milestone 09 handoff, with real-device UX validation before Milestone 10.
