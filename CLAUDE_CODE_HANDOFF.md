@@ -40,6 +40,8 @@ Rules:
 - `src/game/mission-graph.ts`: typed stage/resolution/objective/opportunity data
 - `src/game/mission-save.ts`: the one SAVE_KEY, storage and reset (dependency-free)
 - `src/game/mission-result.ts`: typed MissionResult and its completion event
+- `src/game/progression.ts`: the one completed-run career profile (separate key, dependency-free)
+- `src/game/run-telemetry.ts`: pure run-duration accumulator
 - `src/game/mission-objects.ts`: Milestone 05 world interactables
 - `src/game/delivery-cart.ts`: authored cart movement
 - `src/game/npc-routines.ts`: authored NPC waypoint routines and per-run variant selection
@@ -1277,3 +1279,328 @@ quality, stereo imaging, spatial feel or audio performance on a real phone.
 - first-unlock latency: whether the 803 KB ambience decode delays the intro
 - whether audio survives the WebGL context-loss pause path
 - battery/thermal cost of the audio graph over a long session on LOW
+
+## Milestone 08 — Save Depth + Field Mastery + Replay Progression (verified)
+
+Gameplay commit `0c3e42e`. Completed operations now leave a persistent record.
+The debrief compares the run against the player's own history and names one
+concrete thing worth going back for. Everything is local, informational, and
+grants no gameplay power.
+
+### Two stores, never one
+
+| | Active run | Career profile |
+|---|---|---|
+| key | `cuma_world_android_save_v100` | `cuma_world_progression_v1` |
+| owner | `src/game/mission-save.ts` | `src/game/progression.ts` |
+| schema | `StoredMission` | `ProgressionProfile`, `version: 1` |
+| cleared by replay | yes | **no** |
+
+The run save key is **unchanged**. `SAVE_KEY` and `resetMissionProgress()` were
+neither renamed nor duplicated, and a CI guard now fails the build if either
+string appears in any file other than `mission-save.ts`.
+
+The two stores are read and written independently and neither references the
+other. Corrupt progression JSON falls back to a clean default **without touching
+the mission save**; a corrupt mission save leaves a valid profile intact. Both
+directions are asserted in the test suite.
+
+### Profile schema and validation
+
+```ts
+interface ProgressionProfile {
+  version: 1;
+  completedRuns: number;
+  bestScore: number;
+  bestRank: MissionRank | null;
+  bestAlerts: number | null;
+  bestOperationSeconds: number | null;
+  routesCompleted: CompletedRoute[];        // "main" | "side"
+  manifestSolutions: MissionResolutionId[];
+  verifySolutions: MissionResolutionId[];
+  objectivesCompletedEver: OptionalObjectiveId[];
+  opportunitiesUsedEver: OpportunityId[];
+  intelDiscoveredEver: IntelId[];
+  masteryRecords: MasteryRecordId[];
+  processedRuns: string[];                  // capped at 24
+  recentRuns: ProgressionRunSummary[];      // capped at 12, newest first
+  sealed: boolean;                          // runtime only, never serialised
+}
+```
+
+`validateProgression()` does real validation rather than casting: schema
+version, finite numeric ranges, known rank / route / resolution / objective /
+opportunity / intel / record ids, **stage-correct** resolutions (a VERIFY id
+cannot enter `manifestSolutions`), deduplication, and per-array length caps.
+Unknown future fields are ignored rather than crashing older code.
+
+**Newer schema versions are sealed, not reinterpreted.** A profile whose
+`version` exceeds 1 reads as a default profile with `sealed: true`, and
+`writeProgression()` refuses to write a sealed profile — so an older build can
+read a newer save without destroying it. Verified: a stored `version: 99`
+profile survives a read-then-write cycle byte-intact.
+
+### Completed-run identity and idempotency
+
+Milestone 05 deliberately republishes `MissionResult` when an already-COMPLETE
+save is restored, so the debrief works after relaunch. Progression recording is
+therefore keyed on a **stable, deterministic id**:
+
+`run:${runSeed}` — derived from the persisted run seed, never from
+`Math.random` and never from the clock. CI guards both.
+
+Restoring the same COMPLETE save cannot increment `completedRuns`, append a
+second history entry, re-announce mastery, or move a best stat — even if the
+republished result claims a better score. A fresh replay takes a new `runSeed`
+and records as a genuinely new run.
+
+`processedRuns` is a bounded ring of 24 ids. Only the current mission save can
+ever be restored and republished, so 24 is far more than sufficient.
+
+### Best-run records
+
+- highest score
+- best rank under explicit ordering: **GHOST (3) > SHADOW (2) > OPERATIVE (1)**
+- lowest alert count
+- fastest operation time, and only when telemetry actually exists
+
+A worse or tied run never overwrites. `ProgressionUpdate` reports
+`newBestScore` / `newBestRank` / `newBestAlerts` / `newBestTime` /
+`newlyUnlockedRecords` as typed booleans, so the debrief never infers a record
+by comparing text. A later untimed run never clears an existing best time.
+
+### Run telemetry
+
+`src/game/run-telemetry.ts` is a plain numeric accumulator — no Babylon, no DOM,
+no storage, no scene scan, no allocation per frame.
+
+Measured: active operation seconds (INFILTRATE + EXTRACT), WATCH seconds,
+SEARCH seconds, HIGH_ALERT seconds, and the peak facility state.
+
+Fed by exactly one call from the existing frame update, using state the runtime
+already holds:
+
+```ts
+this.mission.recordRunTime(dt, awarenessActive, facility.state);
+```
+
+- **Pause is excluded** — the runtime's `update()` is not reached while paused.
+- **Cinematic is excluded** — the intro runs `updateCinematicFrame()` instead.
+- **A giant resume frame is clamped** at `MAX_TELEMETRY_FRAME_SECONDS` 0.25 s,
+  independently of the render loop's own clamp, so the accumulator is correct
+  on its own terms.
+- Non-finite and negative `dt` add nothing.
+
+**No per-frame localStorage write.** Storage is touched on a dt-driven
+checkpoint every `TELEMETRY_CHECKPOINT_SECONDS` = 5 s, plus a
+`flushRunTime()` on the background/pause path so a backgrounded run does not
+lose measured time. Measured in test: 600 frames at 0.02 s produce **2 writes**.
+
+Deliberately **not** persisted: live NPC positions, facility heat, the
+last-known anchor, social cooldown, FIELD FOCUS, audio state, camera state. A
+CI guard fails the build if any of those appear as a field in the telemetry
+module.
+
+### MissionResult additions
+
+`telemetry?: StoredRunTelemetry` is optional in `StoredMission`, and the five
+telemetry fields are optional **together** in `MissionResult`:
+`operationSeconds`, `watchSeconds`, `searchSeconds`, `highAlertSeconds`,
+`maxFacilityState`. One further typed field was added, `intelDiscovered`, so
+progression records which intel a run actually held rather than inferring it
+from a count.
+
+Every pre-existing field is intact. There is no MutationObserver, no HUD text
+parsing and no regex reconstruction anywhere in the path.
+
+**An old COMPLETE save has no telemetry and is not given a fake one.** It still
+publishes a valid typed result, the fields are `undefined`, and the debrief
+renders the time as `—` and the security pressure as `BASKI · KAYIT YOK`.
+Verified against a save written in the exact pre-Milestone-08 shape.
+
+### Field mastery — eight records, no power
+
+| id | label | unlock |
+|---|---|---|
+| `clean_run` | TEMİZ OPERASYON | a completed run with 0 alerts |
+| `full_intel` | TAM KEŞİF | `intelFound >= intelTotal` in one run |
+| `full_optional` | TAM DOSYA | both optional objectives in one run |
+| `route_mastery` | ROTA HAKİMİYETİ | MAIN and SIDE across runs |
+| `manifest_mastery` | MANİFEST HAKİMİYETİ | both MANIFEST solutions across runs |
+| `verify_mastery` | DOĞRULAMA HAKİMİYETİ | both VERIFY solutions across runs |
+| `opportunity_mastery` | FIRSAT HAKİMİYETİ | all three opportunities across runs |
+| `ghost_record` | GHOST KAYDI | GHOST rank at least once |
+
+Cumulative records are recomputed from the profile's own sets, so they stay
+correct however the profile was reached; single-run records are decided by the
+run in hand and then kept. The set is emitted in a fixed display order, not
+insertion order, so it is deterministic.
+
+These are replay goals and dossier presentation only: **no stealth buff, no AI
+nerf, no movement or gadget upgrade, no XP, no level, no loot, no daily streak,
+no FOMO, no monetisation.** Scoring is untouched — 0..100, the same weights, and
+an alternate resolution still scores exactly what its sibling scores.
+
+### Recent history
+
+Capped at **12** compact summaries, newest first. Each entry holds only
+`runId, score, rank, route, manifest, verify, optionalCount, opportunityCount,
+alerts, operationSeconds` — asserted key-for-key in the tests, so a future
+change cannot quietly start storing a world snapshot. `operationSeconds` is
+`null`, never 0, when the run predates telemetry.
+
+Both caps are enforced **where the arrays are recorded**, not only on read. The
+first version of the cap guard passed while only the read path was capped; it
+was tightened to pin the recording line after the probe caught it.
+
+### Debrief
+
+`debrief.ts` still imports no `mission.ts` and no Babylon — the Milestone 05
+bootstrap optimisation is intact, and the built boot chunk contains no
+`@babylonjs`, `BABYLON` or `AbstractMesh` markers.
+
+Four sections, sized for a landscape phone rather than a desktop dashboard:
+
+- **CURRENT RUN** (7 short lines, ≤43 chars): route + optional x/2 + intel x/y,
+  MANIFEST solution, VERIFY solution, objectives, opportunities, alerts +
+  operation time, and a security-pressure line.
+- **KİŞİSEL REKOR** (4 lines): best score, rank, alerts, time, each marked
+  `· YENİ` when this run genuinely set it.
+- **SAHA USTALIĞI** (2–3 lines): `KAYIT n/8`, completed operations, and any
+  newly earned record.
+- **SONRAKİ KAYIT** — one deterministic next target.
+
+The two blocks sit in a two-column grid; the panel uses CSS safe areas, a
+`max-height` with internal scroll as a safety net, and the close/replay touch
+targets are unchanged. The 10-run history is deliberately **not** dumped into
+the overlay.
+
+### Next replay target — deterministic priority
+
+1. a route not yet completed
+2. a MANIFEST solution not yet used
+3. a VERIFY solution not yet used
+4. an optional objective never completed
+5. an opportunity never used
+6. full intel in one run
+7. a clean run, then GHOST
+8. beat the personal best time, or the best score when no time exists
+
+Never random, never time-limited, and it reads only what the profile records
+about completed runs — no live NPC information. Verified to walk that ladder
+step by step as each level is satisfied, and to survive a storage round trip.
+
+### Replay semantics
+
+The replay button still calls `resetMissionProgress()` and reloads. It clears
+**only** the active run key, so the next runtime generates a fresh `runSeed`,
+while the progression profile, its history, mastery records and every stored
+preference survive. Pressing replay never counts as a completed run. No
+prestige, no XP reset, no second restart path.
+
+### Optional boot readout
+
+When at least one run has been completed, the briefing screen shows one compact
+line: `OPERASYON KAYDI · n TAMAMLAMA · EN İYİ n · USTALIK n/8`. It reads the
+dependency-free progression module only, stays hidden at zero completions, adds
+no menu or dashboard, and does not delay runtime loading.
+
+### Regression guards
+
+`ci/check_presentation_regressions.sh` gained 16 guards, all explicit-fail — the
+`! grep` + `set -e` trap found in Milestone 06 is not reintroduced. **Each one
+was proven to fire** by injecting the violation and observing a non-zero exit:
+
+- a second run `SAVE_KEY` in any file
+- a duplicated progression key
+- a second `resetMissionProgress` definition
+- progression deleting storage
+- either store referencing the other
+- Babylon or a world module imported into progression/telemetry
+- a new `setInterval` / `requestAnimationFrame` / `setTimeout`
+- `Math.random` or `Date.now` in the completion-id path
+- either cap removed from its recording path
+- telemetry storing live world state
+- `debrief.ts` importing `./mission`, or scraping display text
+
+### CI verification
+
+Run `33303346945` (#137), `workflow_dispatch` on
+`0c3e42e7dbf35ed7d37eb0dfd6ad2a540788e4db`, **completed SUCCESS**, all 15 steps
+green, 3m03s.
+
+Verified from the job log and artifact list, not the step-status API — which
+again served a stale `in_progress` snapshot after the artifact had already been
+uploaded:
+
+- `PROGRESSION_OK 234 checks passed` (new suite)
+- `AUDIO_RUNTIME_OK 104 checks passed`
+- `PRESENTATION_OK 96 checks passed`
+- `MISSION_GRAPH_OK 117 checks passed`
+- `CHARACTER_RUNTIME_OK 53 checks passed`
+- `PRESENTATION_REGRESSION_GUARDS_OK`
+- `CHARACTER_GLB_OK path=public/assets/characters/cuma_runtime.glb`
+- `AUDIO REPORT` printed twice and `AUDIO_OK` twice, from `--require-packaged`
+  on both `public/assets/audio` and `dist/assets/audio` (803,412 B)
+- `BUILD SUCCESSFUL in 1m 52s`
+- no `##[error]`, no `_FAILED` marker and no non-zero step exit anywhere in the
+  3,205-line log
+- debug APK sha256 `b6113972f4de347b396ce4244763912ee610629e8f8bda414aa13fe681c5ee26`
+- Play AAB sha256 `c84667bab0be4714e89bed189a22e5db95f5cdad9e425f4c39b2a2f0d74bb096`
+- artifact `CUMA-WORLD-Android-Play-Build` id `9729683491`, 23,752,024 bytes,
+  digest `sha256:60c87f24d721df5272f900f7cdcebb61c6b786848e8a7d1be3d2dd87c212608c`
+
+### Bundle, CI-to-CI against run #136
+
+| | #136 (M07) | #137 (M08) | delta |
+|---|---|---|---|
+| bootstrap JS | 22,979 | 33,894 | +10,915 |
+| largest chunk | 812,392 | 812,392 | **0** |
+| total JS | 7,448,663 | 7,461,907 | +13,244 |
+| total web | 14,978,763 | 14,993,803 | +15,040 |
+| artifact | 23,744,254 | 23,752,024 | +7,770 |
+
+All budgets green: bootstrap uses 33% of its 102,400 limit, largest chunk 88% of
+921,600, total JS 88% of 8,500,000.
+
+The bootstrap growth is `progression.ts` plus the debrief sections, and it was
+going to land in the boot chunk regardless — `main.ts` already imports
+`debrief.ts` statically, so the optional briefing readout costs nothing extra.
+The chunk boundary is intact: the built entry chunk was inspected and contains
+no `@babylonjs`, `BABYLON` or `AbstractMesh` marker, and the largest chunk did
+not move by a single byte.
+
+### What CI does not prove
+
+CI proves the contracts, the storage behaviour and the build. It says nothing
+about whether any of this is any good on a phone:
+
+- whether the debrief actually stays readable on a landscape phone with the
+  three new sections, or needs the panel's `overflow-y` fallback in practice
+- whether `KİŞİSEL REKOR` and `SAHA USTALIĞI` at 9px are legible on a real
+  device, and whether the two-column grid holds at narrow landscape heights
+- whether marking all four stats `· YENİ` on the very first completed run reads
+  as informative or as noise
+- whether the next replay target actually motivates a second run, or reads as a
+  checklist chore
+- whether the eight records are the right eight, and whether their Turkish
+  labels land
+- whether operation time feels meaningful given that the cinematic and pause are
+  excluded — the number is honest, but it has never been compared against a
+  stopwatch on device
+- whether the 5-second checkpoint cadence loses a noticeable amount of time when
+  Android kills the WebView without a pause event
+- whether the briefing readout adds useful context or clutters the boot screen
+- real-device storage behaviour: a quota-exceeded write, private browsing, and
+  what happens when the profile and the mission save are evicted separately
+
+### Requires real-device testing from Milestone 08
+
+- complete a run, relaunch, and confirm the debrief opens without the completion
+  counting twice
+- replay, then confirm the profile, history and mastery all survive
+- complete both routes and confirm ROUTE MASTERY unlocks and the next target
+  advances to MANIFEST
+- background the app mid-run and confirm the operation time does not jump
+- carry an old pre-Milestone-08 save through to the debrief and confirm the time
+  shows `—` rather than 0:00
