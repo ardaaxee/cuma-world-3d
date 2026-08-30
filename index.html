@@ -22,6 +22,7 @@
           <div><span>YAKLAŞIM</span><strong>OYUNCU SEÇİMİ</strong></div>
         </div>
         <div class="briefing-note"><b>RECON</b><span>Opsiyonel intel ve çevresel fırsatlar görev skorunu yükseltir.</span></div>
+        <div id="operation-record" class="operation-record hidden"></div>
         <button id="enter-world" class="primary">OPERASYONU BAŞLAT</button>
       </div>
       <div id="build-label" class="build-label">ANDROID PLAY RUNTIME 11 · PRE-RELEASE</div>
@@ -68,6 +69,17 @@
           <div><span>KEŞİF</span><strong id="debrief-intel">0/4 INTEL</strong></div>
         </div>
         <div class="debrief-note">Recon, yaklaşım seçimi ve fark edilme durumu operasyon sonucuna yansır.</div>
+        <div class="debrief-columns">
+          <section class="debrief-block">
+            <h3>KİŞİSEL REKOR</h3>
+            <div id="debrief-record" class="debrief-block-body">—</div>
+          </section>
+          <section class="debrief-block">
+            <h3>SAHA USTALIĞI</h3>
+            <div id="debrief-mastery" class="debrief-block-body">—</div>
+          </section>
+        </div>
+        <div id="debrief-target" class="debrief-target"></div>
         <div class="debrief-actions">
           <button id="debrief-replay" class="action debrief-replay">YENİDEN OYNA</button>
           <button id="debrief-close" class="primary debrief-close">DÜNYAYA DÖN</button>

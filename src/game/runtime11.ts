@@ -314,6 +314,9 @@ export class GameRuntime {
     this.audio.setPaused(paused);
     setCoverPaused(paused);
     if (paused) {
+      // Backgrounding is the one moment measured time could be lost, so the
+      // checkpoint is flushed here rather than waiting for the next cadence.
+      this.mission.flushRunTime();
       resetPlayerNoise();
       resetFieldFocus();
       this.focusLabel = "";
@@ -513,6 +516,11 @@ export class GameRuntime {
       }
       if (awarenessActive) this.publishFacilityCue(facility.state, previousState);
     }
+
+    // Run telemetry. This update is never reached while paused or during the
+    // cinematic, so neither is counted; the accumulator only touches storage on
+    // its own ~5 second checkpoint.
+    this.mission.recordRunTime(dt, awarenessActive, facility.state);
 
     const npcAwareness = this.npcSystem.update(dt, this.player.position, this.player.collider, awarenessActive);
     const cameraAwareness = this.securitySystem.update(dt, this.player.position, this.player.collider, awarenessActive);

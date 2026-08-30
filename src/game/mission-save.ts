@@ -1,4 +1,5 @@
 import type { MissionResolutionId, OperationStep, OptionalObjectiveId, OpportunityId } from "./mission-graph";
+import type { StoredRunTelemetry } from "./run-telemetry";
 
 /**
  * The one mission save.
@@ -32,6 +33,11 @@ export interface StoredMission {
   resolutions?: Partial<Record<string, MissionResolutionId>>;
   /** Milestone 05: completed optional objectives. */
   objectives?: OptionalObjectiveId[];
+  /**
+   * Milestone 08: checkpointed run durations. Optional so every older save
+   * still parses and simply reports no measured time.
+   */
+  telemetry?: StoredRunTelemetry;
 }
 
 export function readStoredMission(): Partial<StoredMission> | null {

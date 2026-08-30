@@ -32,6 +32,7 @@ import {
   writeStoredMission,
 } from "./mission-save";
 import { type MissionRank, type MissionResult, publishMissionResult } from "./mission-result";
+import { RunTelemetry, type TelemetryFacilityState } from "./run-telemetry";
 
 export type MissionState = MissionStateName;
 export type MissionInteraction = "route-main" | "route-side" | "objective" | "extract" | "camera-bypass";
@@ -76,6 +77,7 @@ export class MissionDirector {
   private alerts = 0;
   private runSeed = 0;
   private publishedResult = false;
+  private readonly telemetry = new RunTelemetry();
   private readonly requiredIntel: IntelId[] = ["market_front_access", "market_side_access"];
   private readonly optionalIntel: IntelId[] = ["market_worker_route", "market_camera"];
   private readonly allIntel: IntelId[] = [...this.requiredIntel, ...this.optionalIntel];
@@ -228,6 +230,26 @@ export class MissionDirector {
     this.persist();
   }
 
+  /**
+   * One call per gameplay frame from the runtime.
+   *
+   * The runtime's update never runs while paused or during the cinematic, so
+   * neither can reach this. Storage is touched only when the accumulator says a
+   * checkpoint is due — roughly every five seconds of measured operation, never
+   * per frame.
+   */
+  recordRunTime(dt: number, active: boolean, facilityState: TelemetryFacilityState): void {
+    if (!this.telemetry.accumulate(dt, active, facilityState)) return;
+    this.persist();
+  }
+
+  /** Lifecycle flush: keeps a backgrounded run's measured time from being lost. */
+  flushRunTime(): void {
+    if (!this.telemetry.hasData) return;
+    this.telemetry.markFlushed();
+    this.persist();
+  }
+
   snapshot(): MissionSnapshot {
     return {
       state: this.state,
@@ -309,13 +331,27 @@ export class MissionDirector {
       if (!id) return [];
       return [{ stage, resolution: id, label: getResolution(id).label }];
     });
+    // Telemetry is spread in only when the run actually measured it, so a save
+    // written before Milestone 08 produces a valid result with no durations at
+    // all rather than a run that claims to have taken zero seconds.
+    const measured = this.telemetry.hasData ? this.telemetry.snapshot() : null;
     return {
+      ...(measured
+        ? {
+          operationSeconds: measured.operationSeconds,
+          watchSeconds: measured.watchSeconds,
+          searchSeconds: measured.searchSeconds,
+          highAlertSeconds: measured.highAlertSeconds,
+          maxFacilityState: measured.maxFacilityState,
+        }
+        : {}),
       rank: this.rank(),
       score: this.computeScore(),
       route: this.selectedRoute,
       intelFound: this.intel.size,
       intelTotal: this.allIntel.length,
       optionalIntel: this.optionalIntel.filter((id) => this.intel.has(id)),
+      intelDiscovered: [...this.intel],
       resolutions,
       objectivesCompleted: [...this.objectives],
       objectivesTotal: allOptionalObjectiveIds().length,
@@ -435,6 +471,7 @@ export class MissionDirector {
       runSeed: this.runSeed,
       resolutions,
       objectives: [...this.objectives],
+      telemetry: this.telemetry.toStored(),
     };
     writeStoredMission(payload);
   }
@@ -458,6 +495,7 @@ export class MissionDirector {
         this.selectedRoute = data.selectedRoute;
       }
       if (isValidRunSeed(data.runSeed)) this.runSeed = data.runSeed;
+      this.telemetry.restore(data.telemetry);
       this.restoreResolutions(data.resolutions, data.operationStep);
       if (typeof data.alerts === "number" && Number.isFinite(data.alerts)) {
         this.alerts = Math.max(0, Math.min(999, Math.trunc(data.alerts)));

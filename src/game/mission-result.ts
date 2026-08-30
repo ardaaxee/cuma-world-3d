@@ -5,6 +5,7 @@ import type {
   OptionalObjectiveId,
   OpportunityId,
 } from "./mission-graph";
+import type { TelemetryFacilityState } from "./run-telemetry";
 
 /**
  * The immutable snapshot a finished run produces.
@@ -24,6 +25,12 @@ export interface MissionResult {
   readonly intelFound: number;
   readonly intelTotal: number;
   readonly optionalIntel: readonly IntelId[];
+  /**
+   * Every intel id this run discovered. `intelFound` stays the count the HUD
+   * shows; this is the same fact as ids, so progression never has to infer
+   * which intel a run actually held.
+   */
+  readonly intelDiscovered: readonly IntelId[];
   /** Which resolution actually completed each required stage. */
   readonly resolutions: readonly { readonly stage: MissionStageId; readonly resolution: MissionResolutionId; readonly label: string }[];
   readonly objectivesCompleted: readonly OptionalObjectiveId[];
@@ -33,6 +40,16 @@ export interface MissionResult {
   readonly runSeed: number;
   /** One short pointer at something meaningful the player did not do. */
   readonly replayHint: string;
+  /**
+   * Milestone 08 run telemetry. Every field is optional together: a run
+   * restored from a save written before telemetry existed reports none of them,
+   * and the debrief must show that as unavailable rather than as zero seconds.
+   */
+  readonly operationSeconds?: number;
+  readonly watchSeconds?: number;
+  readonly searchSeconds?: number;
+  readonly highAlertSeconds?: number;
+  readonly maxFacilityState?: TelemetryFacilityState;
 }
 
 export const MISSION_RESULT_EVENT = "cuma-mission-result";

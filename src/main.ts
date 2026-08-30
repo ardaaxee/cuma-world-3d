@@ -8,6 +8,7 @@ import "./graphics-effects.css";
 import { MissionDebrief } from "./game/debrief";
 import { InteractionPromptGuard } from "./game/interaction-prompt-guard";
 import { MissionFeedback } from "./game/mission-feedback";
+import { masteryProgress, readProgression } from "./game/progression";
 import {
   DEFAULT_GRAPHICS,
   type AdaptiveQualitySetting,
@@ -128,7 +129,28 @@ new MissionDebrief(
     syncRuntimePause();
   },
   document.querySelector<HTMLElement>(".debrief-note"),
+  document.querySelector<HTMLElement>("#debrief-record"),
+  document.querySelector<HTMLElement>("#debrief-mastery"),
+  document.querySelector<HTMLElement>("#debrief-target"),
 );
+
+/**
+ * One compact career line on the briefing screen. It reads the dependency-free
+ * progression module only, stays hidden until there is something to report, and
+ * never delays runtime loading.
+ */
+function showOperationRecord(): void {
+  const element = document.querySelector<HTMLElement>("#operation-record");
+  if (!element) return;
+  const profile = readProgression();
+  if (profile.completedRuns <= 0) return;
+  const mastery = masteryProgress(profile);
+  element.textContent = `OPERASYON KAYDI · ${profile.completedRuns} TAMAMLAMA`
+    + ` · EN İYİ ${profile.bestScore} · USTALIK ${mastery.earned}/${mastery.total}`;
+  element.classList.remove("hidden");
+}
+
+showOperationRecord();
 
 function clearHudQuietTimer(): void {
   if (hudQuietTimer !== null) {

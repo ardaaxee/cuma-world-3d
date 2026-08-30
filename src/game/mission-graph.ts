@@ -170,6 +170,26 @@ const OPPORTUNITIES: Record<OpportunityId, Opportunity> = {
   },
 };
 
+/**
+ * Every intel id the operation defines, in a fixed order. `MissionDirector`
+ * still decides which are required and which are optional; this list exists so
+ * storage layers can validate an id without guessing.
+ */
+const INTEL_IDS: readonly IntelId[] = [
+  "market_front_access",
+  "market_side_access",
+  "market_worker_route",
+  "market_camera",
+];
+
+export function allIntelIds(): readonly IntelId[] {
+  return INTEL_IDS;
+}
+
+export function isIntelId(value: string): value is IntelId {
+  return (INTEL_IDS as readonly string[]).includes(value);
+}
+
 export function getStage(id: MissionStageId): MissionStage {
   return STAGES[id];
 }

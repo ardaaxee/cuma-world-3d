@@ -152,6 +152,12 @@ jobs:
           grep -q 'MAX_SPATIAL_VOICES' src/game/audio.ts
           grep -q 'onPresentation' src/game/audio.ts
           test ! -f src/game/ui-audio-feedback.ts
+          # Milestone 08 progression contract.
+          grep -q 'cuma_world_progression_v1' src/game/progression.ts
+          grep -q 'RunTelemetry' src/game/run-telemetry.ts
+          grep -q 'recordCompletedRun' src/game/debrief.ts
+          grep -q 'recordRunTime' src/game/runtime11.ts
+          grep -q 'nextReplayTarget' src/game/progression.ts
           # Regression guards. `! grep` is exempt from `set -e`, so these must
           # test explicitly to actually be able to fail the build. They match
           # real usage (`new MutationObserver`, an active `.match(`) so the
@@ -186,6 +192,7 @@ jobs:
           node ci/test_mission_graph.mjs
           node ci/test_presentation.mjs
           node ci/test_audio_runtime.mjs
+          node ci/test_progression.mjs
 
       - name: Create native Android project
         shell: bash
