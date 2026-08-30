@@ -96,9 +96,15 @@ jobs:
           done
           if [ "${#packaged[@]}" -gt 0 ]; then
             (IFS=,; echo "AUDIO_ASSETS=${packaged[*]}") >> "$GITHUB_ENV"
+            # Everything the archive supplied must be well formed.
+            python3 ci/audit_audio_assets.py public/assets/audio --require-packaged
           else
             echo 'AUDIO_ASSETS=not_packaged' >> "$GITHUB_ENV"
+            # Still print the report so the fallback path is visible in the log.
+            python3 ci/audit_audio_assets.py public/assets/audio
           fi
+          AUDIO_BYTES="$(find public/assets/audio -type f -printf '%s\n' 2>/dev/null | awk '{t+=$1} END {print t+0}')"
+          echo "AUDIO_BYTES=$AUDIO_BYTES" >> "$GITHUB_ENV"
 
       - name: Install web runtime dependencies
         run: npm install --no-audit --no-fund
@@ -139,6 +145,13 @@ jobs:
           grep -q 'setIdleFacing' src/game/character.ts
           grep -q 'SPRINT_FOV_MIN_SPEED' src/game/runtime11.ts
           grep -q 'GADGET_READY' src/game/gadgets.ts
+          # Milestone 07 audio contract.
+          grep -q 'WORLD_AUDIO_EVENT_NAME' src/game/audio-events.ts
+          grep -q 'GaitScheduler' src/game/audio-model.ts
+          grep -q 'classifyAcoustic' src/game/audio-surfaces.ts
+          grep -q 'MAX_SPATIAL_VOICES' src/game/audio.ts
+          grep -q 'onPresentation' src/game/audio.ts
+          test ! -f src/game/ui-audio-feedback.ts
           # Regression guards. `! grep` is exempt from `set -e`, so these must
           # test explicitly to actually be able to fail the build. They match
           # real usage (`new MutationObserver`, an active `.match(`) so the
@@ -148,9 +161,12 @@ jobs:
           grep -q 'investigateTimer' src/game/npc.ts
           grep -q 'senseInterval' src/game/npc.ts
           grep -q 'private enabled = true' src/game/npc.ts
-          grep -q 'wasMuted' src/game/audio.ts
-          grep -q 'UiAudioFeedback' src/main.ts
-          grep -q 'ui-audio-feedback' src/main.ts
+          # Milestone 07 consolidated audio into one owner: GameAudio holds the
+          # single AudioContext and the master volume, so main.ts unlocks one
+          # engine and UiAudioFeedback no longer exists.
+          grep -q 'setMasterVolume' src/game/audio.ts
+          grep -q 'unlockAudio' src/main.ts
+          grep -q 'setAudioVolume' src/main.ts
           grep -q 'freezeWorldMatrix' src/game/visuals.ts
           grep -q 'VITE_CUMA_MODEL_PACKAGED' src/game/character.ts
           grep -q 'resolveAnimationGroups' src/game/character.ts
@@ -163,11 +179,13 @@ jobs:
           test -s dist/assets/characters/CUMA_HIGH_LICENSE.txt
           if [ "${AUDIO_ASSETS:-not_packaged}" != 'not_packaged' ]; then
             test -d dist/assets/audio
+            python3 ci/audit_audio_assets.py dist/assets/audio --require-packaged
           fi
           python3 ci/measure_android_web_bundle.py
           node ci/test_character_runtime.mjs
           node ci/test_mission_graph.mjs
           node ci/test_presentation.mjs
+          node ci/test_audio_runtime.mjs
 
       - name: Create native Android project
         shell: bash
@@ -298,6 +316,7 @@ jobs:
             echo "cuma_model_sha256=$MODEL_SHA"
             echo 'cuma_model_license=CC0/public-domain provenance file packaged'
             echo "audio_assets=${AUDIO_ASSETS:-not_packaged}"
+            echo "audio_bytes=${AUDIO_BYTES:-0}"
             echo "bootstrap_js_bytes=${BOOTSTRAP_JS_BYTES:-unknown}"
             echo "largest_js_chunk_bytes=${LARGEST_JS_CHUNK_BYTES:-unknown}"
             echo "total_js_bytes=${TOTAL_JS_BYTES:-unknown}"

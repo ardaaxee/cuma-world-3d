@@ -2,10 +2,11 @@ node_modules/
 dist/
 android/
 
-# Character binaries are installed by CI (ci/install_high_character.py) and
+# Character and audio binaries are extracted from the source archive by CI and
 # packaged into public/ at build time. They are never committed.
 game/assets/characters/
 public/assets/characters/
+public/assets/audio/
 
 *.log
 __pycache__/

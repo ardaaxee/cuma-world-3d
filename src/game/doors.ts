@@ -39,6 +39,14 @@ export interface DoorUseResult {
   readonly message: string;
   /** Where a worked door made a sound, for the runtime to feed the noise model. */
   readonly noiseAt: Vector3 | null;
+  /**
+   * Presentation cue for the audio owner. Deliberately separate from
+   * `noiseAt`: a refused door is audible to the player but is not a gameplay
+   * noise event, and an automatic security close is audible without ever
+   * becoming one.
+   */
+  readonly audioCue: "door-open" | "door-locked" | null;
+  readonly audioAt: Vector3 | null;
 }
 
 interface DoorRuntime {
@@ -182,7 +190,7 @@ export function doorPromptLabel(id: string): string {
  */
 export function tryUseDoor(id: string): DoorUseResult {
   const door = doors.get(id);
-  if (!door) return { changed: false, message: "", noiseAt: null };
+  if (!door) return { changed: false, message: "", noiseAt: null, audioCue: null, audioAt: null };
 
   const opening = door.target <= 0;
   if (opening && !isAccessSatisfied(door.def.access)) {
@@ -190,6 +198,8 @@ export function tryUseDoor(id: string): DoorUseResult {
       changed: false,
       message: `${door.def.label} · ${accessRequirementText(door.def.access)}`,
       noiseAt: null,
+      audioCue: "door-locked",
+      audioAt: door.mesh.position,
     };
   }
 
@@ -203,6 +213,8 @@ export function tryUseDoor(id: string): DoorUseResult {
     // A worked door is a real sound event; the runtime routes it through the
     // single authoritative noise model. Automatic closing stays silent.
     noiseAt: door.mesh.position,
+    audioCue: "door-open",
+    audioAt: door.mesh.position,
   };
 }
 

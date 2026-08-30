@@ -8,7 +8,6 @@ import "./graphics-effects.css";
 import { MissionDebrief } from "./game/debrief";
 import { InteractionPromptGuard } from "./game/interaction-prompt-guard";
 import { MissionFeedback } from "./game/mission-feedback";
-import { UiAudioFeedback } from "./game/ui-audio-feedback";
 import {
   DEFAULT_GRAPHICS,
   type AdaptiveQualitySetting,
@@ -109,9 +108,9 @@ function syncRuntimePause(): void {
   if (!shouldPause) void runtime?.unlockAudio();
 }
 
-// Both feedback layers consume typed presentation cues now, so neither needs a
-// handle on the HUD elements it used to observe.
-const uiAudioFeedback = new UiAudioFeedback();
+// MissionFeedback consumes typed presentation cues; the audible half of those
+// cues is owned by GameAudio inside the runtime, so there is one AudioContext
+// and one volume owner for the whole game.
 new InteractionPromptGuard(intelStatus, interactionStatus);
 new MissionFeedback();
 new MissionDebrief(
@@ -244,7 +243,6 @@ function applyGameplayPreferences(): void {
   saveGameplayPreferences(preferences);
   runtime?.setLookSensitivity(preferences.lookSensitivity);
   runtime?.setAudioVolume(preferences.audioVolume);
-  uiAudioFeedback.setVolume(preferences.audioVolume);
   activeHudMode = preferences.hudMode;
   document.body.classList.toggle("hud-compact", activeHudMode === "COMPACT");
   wakeHud();
@@ -427,7 +425,7 @@ enter.addEventListener("click", async () => {
     syncRuntimePause();
 
     // Unlock audio from the user's original button gesture, before the wait.
-    await Promise.allSettled([activeRuntime.unlockAudio(), uiAudioFeedback.unlock()]);
+    await activeRuntime.unlockAudio();
 
     boot.classList.add("hidden");
     // HUD and mobile controls stay hidden through the mission intro; on a

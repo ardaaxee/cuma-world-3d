@@ -1,4 +1,5 @@
 import type { Mesh } from "@babylonjs/core";
+import { publishWorldAudio } from "./audio-events";
 import { CART_POSITIONS } from "./mission-objects";
 
 /**
@@ -52,6 +53,9 @@ export function pushDeliveryCart(): { x: number; y: number; z: number } | null {
   targetIndex = (stopIndex + 1) % CART_POSITIONS.length;
   moving = true;
   const position = cart.position;
+  // Presentation only. The authoritative CART_NOISE_LOUDNESS impulse the
+  // runtime reports is unchanged and remains the AI-hearing truth.
+  publishWorldAudio("cart-start", position.x, position.y, position.z, 0.8);
   return { x: position.x, y: position.y, z: position.z };
 }
 
@@ -74,6 +78,7 @@ export function updateDeliveryCart(dt: number): void {
     position.copyFrom(destination);
     stopIndex = targetIndex;
     moving = false;
+    publishWorldAudio("cart-stop", position.x, position.y, position.z, 0.7);
     return;
   }
   position.x += (deltaX / distance) * step;

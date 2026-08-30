@@ -7,6 +7,7 @@ import {
   Vector3,
 } from "@babylonjs/core";
 import "../gadgets.css";
+import { publishLocalAudio, publishWorldAudio } from "./audio-events";
 import { publishPresentation } from "./presentation-events";
 
 type GadgetId = "scan" | "jam" | "decoy";
@@ -150,6 +151,7 @@ class GadgetToolkit {
     }
 
     document.body.classList.add("field-scan-active");
+    publishLocalAudio("scan", 0.7);
     this.showStatus(`FIELD SCAN · ${targets.length} SİNYAL`, 2800);
     window.setTimeout(() => {
       document.body.classList.remove("field-scan-active");
@@ -162,6 +164,7 @@ class GadgetToolkit {
   private activateJam(): boolean {
     window.dispatchEvent(new CustomEvent("cuma-gadget-jam", { detail: { duration: 5.5 } }));
     document.body.classList.add("signal-jam-active");
+    publishLocalAudio("jam", 0.8);
     this.showStatus("SIGNAL JAM · CCTV BASKILANIYOR", 5500);
     window.setTimeout(() => document.body.classList.remove("signal-jam-active"), 5500);
     return true;
@@ -182,6 +185,9 @@ class GadgetToolkit {
     window.dispatchEvent(new CustomEvent("cuma-gadget-decoy", {
       detail: { x: point.x, y: point.y, z: point.z },
     }));
+    // Presentation only, at the same point the gameplay decoy uses. NPC
+    // investigation still follows the authoritative gameplay event above.
+    publishWorldAudio("decoy", point.x, point.y, point.z, 1);
 
     const pulseMaterial = new PBRMaterial(`decoy-pulse-${performance.now()}`, scene);
     pulseMaterial.albedoColor = new Color3(0.34, 0.21, 0.08);

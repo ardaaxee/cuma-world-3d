@@ -12,6 +12,7 @@ import {
   TransformNode,
   Vector3,
 } from "@babylonjs/core";
+import { publishLocalAudio } from "./audio-events";
 import { type CharacterAnimationState, hasRequiredStates, resolveAnimationGroups } from "./character-animation";
 import { AnimationBlender } from "./character-blender";
 import { FacialLifeLayer } from "./character-face";
@@ -241,6 +242,10 @@ export class PlayerCharacter {
     // Every touchdown gets the landing pose; only loud ones make noise.
     this.jumpAnimTimer = 0;
     this.landingAnimTimer = LANDING_ANIM_SECONDS;
+    // Presentation only, from this same existing landing truth — there is no
+    // second landing detector, and this never feeds the noise model. Every
+    // touchdown is audible; the gameplay noise gate below is unchanged.
+    publishLocalAudio("landing", Math.min(1, landingSpeed / 8.5));
     if (landingSpeed < LANDING_NOISE_MIN_SPEED) return;
     const position = this.collider.position;
     reportPlayerLanding(position.x, position.y, position.z, landingSpeed);

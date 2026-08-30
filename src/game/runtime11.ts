@@ -37,6 +37,7 @@ import {
   setFieldFocusQuality,
   updateFieldFocus,
 } from "./field-focus";
+import { publishWorldAudio } from "./audio-events";
 import { CinematicPresentation } from "./cinematic-presentation";
 import { MobileInput, consumeJumpPressed, isCrouched, isJumpQueued, isRunHeld } from "./input";
 import { publishPresentation } from "./presentation-events";
@@ -388,6 +389,9 @@ export class GameRuntime {
   private updateCinematicFrame(dt: number): void {
     this.input.frame();
     consumeJumpPressed();
+    // Gameplay is frozen, so no distance accumulates; clearing the gait makes
+    // certain the handover frame cannot fire a banked footstep.
+    this.audio.resetLocomotion();
 
     // Resolve where gameplay would put the camera right now, so the closing
     // beat blends into the real pose instead of an approximation of it.
@@ -446,7 +450,6 @@ export class GameRuntime {
       this.player.setIdleFacing(this.yaw, dt, !guided);
     }
     this.player.update(horizontalSpeed, dt, this.graphicsPreferences.reducedMotion, isInCover());
-    this.audio.updateFootsteps(horizontalSpeed, dt);
 
     // Sprint FOV follows the actual run state, not joystick magnitude. A full
     // joystick without RUN, and RUN while stationary, both stay at base FOV.
@@ -463,6 +466,19 @@ export class GameRuntime {
     const awarenessActive = missionState === "INFILTRATE" || missionState === "EXTRACT";
 
     const playerPosition = this.player.position;
+    // One audio update per frame: listener, distance-based gait and the slow
+    // acoustic mix tick. This renders what the player hears and is completely
+    // independent of the authoritative noise report on the next line.
+    this.audio.update(
+      dt,
+      playerPosition.x,
+      playerPosition.y,
+      playerPosition.z,
+      this.yaw,
+      horizontalSpeed,
+      this.running,
+      this.lastSecurityState,
+    );
     reportPlayerMovement(playerPosition.x, playerPosition.y, playerPosition.z, horizontalSpeed, dt);
     const zone = updateZonePresence(dt, playerPosition.x, playerPosition.y, playerPosition.z, awarenessActive);
     this.stealthSignals.update(dt, samplePlayerNoise(), zone, awarenessActive);
@@ -489,7 +505,12 @@ export class GameRuntime {
       this.lastSecurityState = facility.state;
       // Escalation swings the controlled doors shut once. Access requirements
       // are untouched, so anything the player may open stays openable.
-      if (escalated) closeSecurityDoors();
+      if (escalated && closeSecurityDoors() > 0) {
+        // Audible to the player at their own position. Deliberately NOT a
+        // reportEnvironmentNoise call: automatic closure stays silent to the
+        // hearing model, exactly as the door design specifies.
+        publishWorldAudio("door-security-close", playerPosition.x, playerPosition.y, playerPosition.z, 0.9);
+      }
       if (awarenessActive) this.publishFacilityCue(facility.state, previousState);
     }
 
@@ -652,9 +673,16 @@ export class GameRuntime {
       if (!interactPressed) return;
       const result = tryUseDoor(meta.doorId);
       showDoorStatus(result.message);
+      // Gameplay noise and presentation audio are reported separately and from
+      // different fields: a refused door is audible to the player but is not a
+      // noise event, so it never reaches the hearing model.
       if (result.noiseAt) {
         const at = result.noiseAt;
         reportEnvironmentNoise(at.x, at.y, at.z, DOOR_NOISE_LOUDNESS);
+      }
+      if (result.audioCue && result.audioAt) {
+        const at = result.audioAt;
+        publishWorldAudio(result.audioCue, at.x, at.y, at.z, 1);
       }
       if (result.changed && typeof navigator.vibrate === "function") navigator.vibrate(12);
       return;
