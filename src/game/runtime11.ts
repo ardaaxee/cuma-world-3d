@@ -1095,7 +1095,8 @@ export class GameRuntime {
       this.pushFocusMesh(this.securitySystem.bypassPanel, "intel", Infinity, player);
     }
     for (const node of OBSERVATION_NODES) {
-      if (targets.length >= 8 || !this.mission.hasSpycraftFact(node.factId)) break;
+      if (targets.length >= 8) break;
+      if (!this.mission.hasSpycraftFact(node.factId)) continue;
       this.pushFocusTarget(`spycraft-observation-${node.id}`, "intel", FOCUS_RADIUS);
     }
 

@@ -166,6 +166,17 @@ try {
   ok("FIELD FOCUS filters unknown facts", spycraft.knownFocusHints(
     new Set(["staff_break_window"]), focusHints,
   ).length === 1);
+  const authoredFocusFacts = ["staff_break_window", "delivery_rotation"];
+  const knownAfterFirstUnknown = new Set(["delivery_rotation"]);
+  const selectedAfterFirstUnknown = [];
+  for (const factId of authoredFocusFacts) {
+    if (selectedAfterFirstUnknown.length >= 8) break;
+    if (!knownAfterFirstUnknown.has(factId)) continue;
+    selectedAfterFirstUnknown.push(factId);
+  }
+  eq("FIELD FOCUS selects the second known fact after an unknown first fact",
+    selectedAfterFirstUnknown[0], "delivery_rotation");
+  eq("unknown first fact does not end the authored loop", selectedAfterFirstUnknown.length, 1);
 
   console.log("\n--- save restore, known-only focus, determinism ---");
   for (const fact of ["delivery_rotation", "monitoring_shift_gap", "service_access_pattern"]) state.discoverFact(fact);
@@ -191,7 +202,8 @@ try {
   const spycraftSource = readFileSync(resolve("src/game/spycraft.ts"), "utf8");
   ok("mission save keeps Spycraft state optional", saveSource.includes("spycraft?: StoredSpycraft"));
   ok("MissionResult keeps Spycraft additions optional", resultSource.includes("spycraftFacts?:"));
-  ok("runtime Field Focus uses the known-fact gate", runtimeSource.includes("hasSpycraftFact(node.factId)"));
+  ok("runtime Field Focus uses continue for unknown authored facts",
+    runtimeSource.includes("if (!this.mission.hasSpycraftFact(node.factId)) continue;"));
   ok("Spycraft does not add a progression buff", !spycraftSource.includes("score") && !spycraftSource.includes("setMovement"));
   stop();
 } finally {
