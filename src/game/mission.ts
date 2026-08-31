@@ -33,6 +33,8 @@ import {
 } from "./mission-save";
 import { type MissionRank, type MissionResult, publishMissionResult } from "./mission-result";
 import { RunTelemetry, type TelemetryFacilityState } from "./run-telemetry";
+import { SpycraftState, allSpycraftFactIds, isSpycraftFactId, opportunityForFact } from "./spycraft";
+import { publishPresentation } from "./presentation-events";
 
 export type MissionState = MissionStateName;
 export type MissionInteraction = "route-main" | "route-side" | "objective" | "extract" | "camera-bypass";
@@ -59,6 +61,8 @@ export interface MissionSnapshot {
   objectivesCompleted: number;
   objectivesTotal: number;
   runSeed: number;
+  spycraftFactsFound: number;
+  fieldInstinctRemaining: number;
 }
 
 type OperationAction = "access-terminal" | "manifest-terminal";
@@ -78,6 +82,7 @@ export class MissionDirector {
   private runSeed = 0;
   private publishedResult = false;
   private readonly telemetry = new RunTelemetry();
+  private readonly spycraft = new SpycraftState();
   private readonly requiredIntel: IntelId[] = ["market_front_access", "market_side_access"];
   private readonly optionalIntel: IntelId[] = ["market_worker_route", "market_camera"];
   private readonly allIntel: IntelId[] = [...this.requiredIntel, ...this.optionalIntel];
@@ -88,6 +93,7 @@ export class MissionDirector {
     this.syncRouteSignal();
     this.syncOperationSignal();
     this.syncIntelSignal();
+    this.syncSpycraftSignal();
     window.addEventListener("cuma-operation-action", this.onOperationAction as EventListener);
     // A save restored straight into COMPLETE must still produce a debrief.
     if (this.state === "COMPLETE") this.publishResult();
@@ -109,6 +115,32 @@ export class MissionDirector {
     this.syncIntelSignal();
     this.persist();
     return true;
+  }
+
+  discoverSpycraftFact(id: string): boolean {
+    if (!this.spycraft.discoverFact(id)) return false;
+    if (isSpycraftFactId(id)) {
+      const opportunity = opportunityForFact(id);
+      publishPresentation("SPYCRAFT_INTEL", "İSTİHBARAT DOĞRULANDI", id);
+      publishPresentation("SPYCRAFT_OPPORTUNITY", "FIRSAT AÇILDI", opportunity);
+    }
+    this.syncSpycraftSignal();
+    this.persist();
+    return true;
+  }
+
+  hasSpycraftFact(id: string): boolean {
+    return this.spycraft.hasFact(id);
+  }
+
+  canSpendFieldInstinct(state: TelemetryFacilityState): boolean {
+    return this.spycraft.canSpendFieldInstinct(state);
+  }
+
+  spendFieldInstinct(state: TelemetryFacilityState): boolean {
+    const spent = this.spycraft.spendFieldInstinct(state);
+    if (spent) this.persist();
+    return spent;
   }
 
   canInteract(interaction: MissionInteraction): boolean {
@@ -144,7 +176,11 @@ export class MissionDirector {
     if (this.resolutions.has(resolution.stage)) return false;
     const stage = getStage(resolution.stage);
     if (stage.prerequisite && !this.resolutions.has(stage.prerequisite)) return false;
-    if (resolution.requiresIntel && !this.intel.has(resolution.requiresIntel)) return false;
+    if (
+      resolution.requiresIntel
+      && !this.intel.has(resolution.requiresIntel)
+      && !(resolution.spycraftFact && this.spycraft.hasFact(resolution.spycraftFact))
+    ) return false;
     return true;
   }
 
@@ -193,7 +229,11 @@ export class MissionDirector {
     if (this.state !== "INFILTRATE" && this.state !== "EXTRACT") return false;
     const opportunity = getOpportunity(id);
     if (opportunity.oncePerRun && this.opportunities.has(id)) return false;
-    if (opportunity.requiresIntel && !this.intel.has(opportunity.requiresIntel)) return false;
+    if (
+      opportunity.requiresIntel
+      && !this.intel.has(opportunity.requiresIntel)
+      && !(opportunity.spycraftFact && this.spycraft.hasFact(opportunity.spycraftFact))
+    ) return false;
     if (opportunity.requiresObjective && !this.objectives.has(opportunity.requiresObjective)) return false;
     return true;
   }
@@ -265,6 +305,8 @@ export class MissionDirector {
       objectivesCompleted: this.objectives.size,
       objectivesTotal: allOptionalObjectiveIds().length,
       runSeed: this.runSeed,
+      spycraftFactsFound: this.spycraft.summary().facts.length,
+      fieldInstinctRemaining: this.spycraft.summary().fieldInstinctRemaining,
     };
   }
 
@@ -359,6 +401,8 @@ export class MissionDirector {
       alerts: this.alerts,
       runSeed: this.runSeed,
       replayHint: this.replayHint(),
+      spycraftFacts: this.spycraft.summary().facts,
+      fieldInstinctRemaining: this.spycraft.summary().fieldInstinctRemaining,
     };
   }
 
@@ -373,6 +417,8 @@ export class MissionDirector {
     if (missingObjective) return `Kaçırılan opsiyonel hedef: ${getOptionalObjective(missingObjective).label}`;
     const missingIntel = this.optionalIntel.find((id) => !this.intel.has(id));
     if (missingIntel) return "Kaçırılan opsiyonel intel bir sonraki denemede yeni çözüm açar.";
+    const missingSpycraft = allSpycraftFactIds().find((id) => !this.spycraft.hasFact(id));
+    if (missingSpycraft) return `Kaçırılan saha gözlemi: ${missingSpycraft}`;
     return "Farklı rota ve fırsat kombinasyonlarını dene.";
   }
 
@@ -434,6 +480,10 @@ export class MissionDirector {
     document.body.dataset.intel = [...this.intel].join(",");
   }
 
+  private syncSpycraftSignal(): void {
+    document.body.dataset.spycraft = this.spycraft.summary().facts.join(",");
+  }
+
   /**
    * Reconciles a restored save. Old saves carry only `operationStep`, so the
    * stages that step implies are backfilled with their original resolutions and
@@ -472,6 +522,7 @@ export class MissionDirector {
       resolutions,
       objectives: [...this.objectives],
       telemetry: this.telemetry.toStored(),
+      spycraft: this.spycraft.serialize(),
     };
     writeStoredMission(payload);
   }
@@ -496,6 +547,7 @@ export class MissionDirector {
       }
       if (isValidRunSeed(data.runSeed)) this.runSeed = data.runSeed;
       this.telemetry.restore(data.telemetry);
+      this.spycraft.restore(data.spycraft);
       this.restoreResolutions(data.resolutions, data.operationStep);
       if (typeof data.alerts === "number" && Number.isFinite(data.alerts)) {
         this.alerts = Math.max(0, Math.min(999, Math.trunc(data.alerts)));
@@ -509,6 +561,7 @@ export class MissionDirector {
       this.selectedRoute = "";
       this.alerts = 0;
       this.runSeed = 0;
+      this.spycraft.reset();
     }
   }
 

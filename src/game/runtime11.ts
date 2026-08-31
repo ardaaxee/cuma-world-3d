@@ -39,7 +39,7 @@ import {
 } from "./field-focus";
 import { publishWorldAudio } from "./audio-events";
 import { CinematicPresentation } from "./cinematic-presentation";
-import { MobileInput, consumeJumpPressed, isCrouched, isJumpQueued, isRunHeld } from "./input";
+import { MobileInput, consumeJumpPressed, isCrouched, isJumpQueued, isRunHeld, type InputFrame } from "./input";
 import { applyLookY } from "./mobile-ux";
 import { hapticConfirm, hapticTap, setHapticsEnabled } from "./haptics";
 import { publishPresentation } from "./presentation-events";
@@ -48,6 +48,10 @@ import { publishPresentation } from "./presentation-events";
 import "./operation-depth";
 import { MissionDirector } from "./mission";
 import { type MissionResolutionId, type OptionalObjectiveId, getResolution } from "./mission-graph";
+import { type ObservationNode, OBSERVATION_NODES, advanceObservationProgress, observationEligibility } from "./observation-intel";
+import { resolveBluff, socialPressure } from "./social-stealth";
+import { resetObservationProgress } from "./observation-intel";
+import { publishSpycraftEvent } from "./spycraft-events";
 import { type MissionObjectMetadata, buildMissionObjects } from "./mission-objects";
 import {
   CART_NOISE_LOUDNESS,
@@ -91,7 +95,6 @@ const SOCIAL_COOLDOWN = 22;
 /** Bounded relief, so a cover story is an opportunity and not invisibility. */
 const SOCIAL_ZONE_RELIEF = 0.28;
 const SOCIAL_FACILITY_RELIEF = 0.12;
-const SOCIAL_LABEL = "PERSONEL KARTINI GÖSTER";
 
 /** Doors are swung shut once per escalation, not continuously. */
 const SECURITY_DOOR_STATES: readonly FacilityState[] = ["SEARCH", "HIGH_ALERT"];
@@ -121,6 +124,7 @@ type GameMetadata = {
     | "door"
     | MissionObjectMetadata["interaction"];
   doorId?: string;
+  spycraftObservationId?: string;
 };
 
 /** Stage resolutions reachable from a world interactable. */
@@ -184,11 +188,15 @@ export class GameRuntime {
   private coverCameraBlend = 0;
   private interactionLabel = "";
   private socialCooldown = 0;
+  private socialPressureSeconds = 0;
+  private socialPressureCooldown = 0;
+  private controlledDoorApproach = false;
   private lastSecurityState: FacilityState = "CALM";
   private readonly focusTargets: FieldFocusTarget[] = [];
   private readonly anchorScratch = Vector3.Zero();
   private zoneIncidentTimer = 0;
   private focusLabel = "";
+  private observationTargetId: string | null = null;
   private readonly coverMoveScratch = Vector3.Zero();
   private readonly cameraDistance = 4.15;
   private readonly shoulderOffset = 0.42;
@@ -325,6 +333,10 @@ export class GameRuntime {
       this.input.setInteractionAvailable(false);
       this.input.setObservationActive(false);
       this.observation = false;
+      this.observationTargetId = resetObservationProgress().nodeId;
+      this.socialPressureSeconds = 0;
+      this.socialPressureCooldown = 0;
+      this.controlledDoorApproach = false;
       document.body.classList.remove("recon-active");
       // Backgrounding is the one moment measured time could be lost, so the
       // checkpoint is flushed here rather than waiting for the next cadence.
@@ -517,6 +529,7 @@ export class GameRuntime {
     updateDeliveryCart(dt);
     updateFieldFocus(dt);
     this.socialCooldown = Math.max(0, this.socialCooldown - dt);
+    this.socialPressureCooldown = Math.max(0, this.socialPressureCooldown - dt);
 
     // Sustained zone pressure is only ever a weak contributor.
     if (awarenessActive && zone.suspicion >= ZONE_PRESSURE_INCIDENT) {
@@ -543,6 +556,8 @@ export class GameRuntime {
       }
       if (awarenessActive) this.publishFacilityCue(facility.state, previousState);
     }
+
+    this.updateSocialPressure(dt, zone.zone, facility.state, horizontalSpeed, frame);
 
     // Run telemetry. This update is never reached while paused or during the
     // cinematic, so neither is counted; the accumulator only touches storage on
@@ -658,6 +673,52 @@ export class GameRuntime {
   }
 
   private updateObservation(dt: number): void {
+    const authored = this.bestObservationNode();
+    if (authored) {
+      const origin = this.camera.position;
+      const target = new Vector3(authored.position.x, authored.position.y, authored.position.z);
+      const direction = target.subtract(origin);
+      const distance = direction.length();
+      direction.normalize();
+      const hit = this.scene.pickWithRay(
+        new Ray(origin, direction, distance),
+        (candidate) => candidate instanceof Mesh && candidate.checkCollisions && candidate !== this.player.collider,
+      );
+      const wallClear = !hit?.hit || (hit.distance ?? distance) >= distance - 0.35;
+      const view = this.camera.getForwardRay().direction;
+      const eligibility = observationEligibility(
+        authored,
+        this.player.position,
+        {
+          x: this.camera.position.x,
+          y: this.camera.position.y,
+          z: this.camera.position.z,
+          forwardX: view.x,
+          forwardY: view.y,
+          forwardZ: view.z,
+        },
+        wallClear,
+      );
+      const progress = advanceObservationProgress(
+        { nodeId: this.observationTargetId, seconds: this.analysisSeconds },
+        authored.id,
+        dt,
+        eligibility.eligible,
+        authored.duration,
+      );
+      this.observationTargetId = progress.nodeId;
+      this.analysisSeconds = progress.seconds;
+      this.observationEl.classList.remove("hidden");
+      this.observationEl.textContent = progress.discovered
+        ? `TANIMLANDI · ${authored.label}`
+        : `ANALİZ ${Math.min(100, Math.round((progress.seconds / authored.duration) * 100))}% · ${authored.label}`;
+      if (progress.discovered && this.mission.discoverSpycraftFact(authored.factId)) {
+        hapticConfirm();
+      }
+      return;
+    }
+
+    this.observationTargetId = null;
     const ray = new Ray(this.camera.position, this.camera.getForwardRay().direction, 18);
     const hit = this.scene.pickWithRay(ray, (mesh) => Boolean((mesh.metadata as GameMetadata | null)?.intelId));
     const mesh = hit?.hit && hit.pickedMesh instanceof Mesh ? hit.pickedMesh : null;
@@ -686,6 +747,45 @@ export class GameRuntime {
     }
   }
 
+  private bestObservationNode(): ObservationNode | null {
+    const view = this.camera.getForwardRay().direction;
+    let best: ObservationNode | null = null;
+    let bestDistance = Infinity;
+    for (const node of OBSERVATION_NODES) {
+      if (this.mission.hasSpycraftFact(node.factId)) continue;
+      const dx = node.position.x - this.player.position.x;
+      const dy = node.position.y - this.player.position.y;
+      const dz = node.position.z - this.player.position.z;
+      const distance = Math.hypot(dx, dy, dz);
+      if (distance >= bestDistance) continue;
+      const facingLength = Math.hypot(view.x, view.z) || 1;
+      const targetLength = Math.hypot(dx, dz) || 1;
+      const facingDot = (dx / targetLength) * (view.x / facingLength) + (dz / targetLength) * (view.z / facingLength);
+      if (distance > node.radius || facingDot < node.minimumFacingDot) continue;
+      const target = new Vector3(node.position.x, node.position.y, node.position.z);
+      const direction = target.subtract(this.camera.position);
+      const length = direction.length();
+      if (length <= 0.001) continue;
+      best = node;
+      bestDistance = distance;
+    }
+    // Keep the authored target alive briefly when the player turns away or a
+    // wall crosses the ray. The progress model then pauses instead of silently
+    // restarting; walking decisively away drops the target normally.
+    if (!best && this.observationTargetId) {
+      const previous = OBSERVATION_NODES.find((node) => node.id === this.observationTargetId);
+      if (previous) {
+        const distance = Math.hypot(
+          previous.position.x - this.player.position.x,
+          previous.position.y - this.player.position.y,
+          previous.position.z - this.player.position.z,
+        );
+        if (distance <= previous.radius * 1.25) return previous;
+      }
+    }
+    return best;
+  }
+
   private updateInteraction(
     interactPressed: boolean,
     awarenessActive: boolean,
@@ -697,12 +797,14 @@ export class GameRuntime {
     const hit = this.scene.pickWithRay(ray, (mesh) => Boolean((mesh.metadata as GameMetadata | null)?.interaction));
     const mesh = hit?.hit && hit.pickedMesh instanceof Mesh ? hit.pickedMesh : null;
     if (!mesh) {
+      this.controlledDoorApproach = false;
       // Nothing physical is targeted, so the contextual social opportunity may
       // claim the prompt. World interactables always outrank it.
       this.updateSocialPrompt(interactPressed, awarenessActive, zone, facilityState);
       return;
     }
     const meta = mesh.metadata as GameMetadata;
+    this.controlledDoorApproach = meta.interaction === "door";
 
     // Doors resolve through this same ray, so there is one owner and the
     // nearest interactable always wins. Staged operation terminals keep their
@@ -755,11 +857,46 @@ export class GameRuntime {
     if (meta.interaction === "camera-bypass") {
       const active = state.state === "INFILTRATE" || state.state === "EXTRACT";
       if (
-        this.securitySystem.canBypass(this.mission.hasIntel("market_camera"), active)
+        this.securitySystem.canBypass(
+          this.mission.hasIntel("market_camera") || this.mission.hasSpycraftFact("monitoring_shift_gap"),
+          active,
+        )
         && this.mission.useOpportunity("camera_bypass")
       ) {
         this.securitySystem.bypass();
       }
+    }
+  }
+
+  private updateSocialPressure(
+    dt: number,
+    zone: ZoneId,
+    facilityState: FacilityState,
+    speed: number,
+    frame: InputFrame,
+  ): void {
+    if (facilityState === "HIGH_ALERT") {
+      this.socialPressureSeconds = 0;
+      return;
+    }
+    const result = socialPressure({
+      zone,
+      speed,
+      running: this.running,
+      erraticMotion: Math.abs(frame.moveX) > 0.78 && Math.abs(frame.moveY) > 0.78,
+      controlledDoorApproach: this.controlledDoorApproach,
+      guardedAreaLingering: zone === "RESTRICTED" && speed < 0.18,
+    });
+    if (result.pressure >= 0.55) {
+      this.socialPressureSeconds = Math.min(8, this.socialPressureSeconds + dt * result.pressure);
+      if (this.socialPressureSeconds >= 2.2 && this.socialPressureCooldown <= 0) {
+        this.socialPressureCooldown = 6;
+        reportIncident("zone");
+        publishSpycraftEvent({ kind: "social-pressure", pressure: result.pressure, detail: result.reason });
+        publishPresentation("SPYCRAFT_SOCIAL", "SOSYAL BASKI", result.reason.toUpperCase());
+      }
+    } else {
+      this.socialPressureSeconds = Math.max(0, this.socialPressureSeconds - dt * result.recovery);
     }
   }
 
@@ -778,13 +915,17 @@ export class GameRuntime {
     }
 
     if (meta.interaction === "delivery-cart") {
-      if (!this.mission.hasIntel("market_worker_route")) return "ÇALIŞAN ROTASI BİLİNMİYOR";
+      if (!this.mission.hasIntel("market_worker_route") && !this.mission.hasSpycraftFact("delivery_rotation")) {
+        return "ÇALIŞAN ROTASI BİLİNMİYOR";
+      }
       return "SEVKİYAT ARABASINI İT";
     }
 
     if (meta.interaction === "camera-bypass") {
       if (this.mission.hasOpportunity("camera_bypass")) return "CCTV DEVRE DIŞI";
-      if (!this.mission.hasIntel("market_camera")) return "ÖNCE CCTV'Yİ RECON İLE TANIMLA";
+      if (!this.mission.hasIntel("market_camera") && !this.mission.hasSpycraftFact("monitoring_shift_gap")) {
+        return "ÖNCE CCTV'Yİ RECON İLE TANIMLA";
+      }
       if (missionState !== "INFILTRATE" && missionState !== "EXTRACT") return "CCTV FIRSATI HAZIR";
       return "CCTV BESLEMESİNİ DEVRE DIŞI BIRAK";
     }
@@ -801,8 +942,9 @@ export class GameRuntime {
     if (this.mission.canResolve(resolution)) {
       return meta.interaction === "objective" ? "TESLİMAT KAYDINI DOĞRULA" : meta.label ?? "ETKİLEŞ";
     }
-    const required = getResolution(resolution).requiresIntel;
-    if (required && !this.mission.hasIntel(required)) {
+    const resolutionData = getResolution(resolution);
+    const required = resolutionData.requiresIntel;
+    if (required && !this.mission.hasIntel(required) && !(resolutionData.spycraftFact && this.mission.hasSpycraftFact(resolutionData.spycraftFact))) {
       return required === "market_camera" ? "ÖNCE CCTV'Yİ RECON İLE TANIMLA" : "ÖNCE ÇALIŞAN ROTASINI ÖĞREN";
     }
     return "ÖNCEKİ AŞAMA TAMAMLANMADI";
@@ -856,14 +998,41 @@ export class GameRuntime {
       return;
     }
 
-    this.setInteractionLabel(SOCIAL_LABEL);
+    const bluff = resolveBluff(this.mission.getRunSeed(), {
+      facilityState,
+      zone,
+      hasStaffCredential: hasStaffCredential(),
+      knowsStaffBreakWindow: this.mission.hasSpycraftFact("staff_break_window"),
+      targetId: target.name,
+      targetAwareness: target.awareness,
+      recentContact: target.recentContact,
+      crouched: isCrouched(),
+      inCover: isInCover(),
+      running: isRunHeld(),
+      noise: samplePlayerNoise().loudness,
+    });
+    if (!bluff.eligible) {
+      this.setInteractionLabel("");
+      return;
+    }
+
+    this.setInteractionLabel("BLÖF UYGUN");
     if (!interactPressed) return;
 
-    if (!this.npcSystem.resolveSocialCheck(target.index)) return;
+    if (!bluff.accepted || !this.npcSystem.resolveSocialCheck(target.index)) {
+      reportIncident("suspicion", this.player.position.x, this.player.position.y, this.player.position.z);
+      this.socialCooldown = SOCIAL_COOLDOWN;
+      publishSpycraftEvent({ kind: "bluff-outcome", accepted: false, detail: "unconvincing" });
+      publishPresentation("SPYCRAFT_BLUFF", "BLÖF UYGUN", "KARŞI TARAF İKNA OLMADI");
+      this.setInteractionLabel("");
+      return;
+    }
     relaxZoneSuspicion(SOCIAL_ZONE_RELIEF);
     relaxFacilityHeat(SOCIAL_FACILITY_RELIEF);
     this.socialCooldown = SOCIAL_COOLDOWN;
     this.setInteractionLabel("");
+    publishSpycraftEvent({ kind: "bluff-outcome", accepted: true, detail: "accepted" });
+    publishPresentation("SPYCRAFT_BLUFF", "BLÖF UYGUN", "PERSONEL KAYDI KABUL EDİLDİ");
     hapticConfirm();
   }
 
@@ -888,6 +1057,7 @@ export class GameRuntime {
    * focus window. NPCs are never candidates, so this cannot become a wallhack.
    */
   private triggerFieldFocus(): void {
+    if (!this.mission.canSpendFieldInstinct(this.lastSecurityState)) return;
     const state = this.mission.snapshot();
     const targets = this.focusTargets;
     targets.length = 0;
@@ -918,8 +1088,15 @@ export class GameRuntime {
       if (!(mesh instanceof Mesh)) continue;
       this.pushFocusMesh(mesh, "intel", FOCUS_RADIUS, player);
     }
-    if (this.mission.hasIntel("market_camera") && !this.mission.hasOpportunity("camera_bypass")) {
+    if (
+      (this.mission.hasIntel("market_camera") || this.mission.hasSpycraftFact("monitoring_shift_gap"))
+      && !this.mission.hasOpportunity("camera_bypass")
+    ) {
       this.pushFocusMesh(this.securitySystem.bypassPanel, "intel", Infinity, player);
+    }
+    for (const node of OBSERVATION_NODES) {
+      if (targets.length >= 8 || !this.mission.hasSpycraftFact(node.factId)) break;
+      this.pushFocusTarget(`spycraft-observation-${node.id}`, "intel", FOCUS_RADIUS);
     }
 
     this.pushEarnedSolutions();
@@ -930,6 +1107,7 @@ export class GameRuntime {
     }
 
     if (!activateFieldFocus(this.scene, targets)) return;
+    this.mission.spendFieldInstinct(this.lastSecurityState);
     hapticTap();
   }
 
@@ -957,6 +1135,9 @@ export class GameRuntime {
       if (at && Vector3.Distance(new Vector3(at.x, at.y, at.z), player) <= FOCUS_RADIUS) {
         this.focusTargets.push({ x: at.x, y: at.y, z: at.z, kind: "access" });
       }
+    }
+    if (this.mission.canUseOpportunity("staff_routine_window")) {
+      this.pushFocusTarget("worker-route-intel", "access", FOCUS_RADIUS);
     }
   }
 
@@ -1080,7 +1261,7 @@ export class GameRuntime {
     this.objectiveEl.textContent = state.objective;
     const result = state.state === "COMPLETE" ? ` · ${state.rank} · SKOR ${state.score}` : "";
     const optional = state.objectivesCompleted > 0 ? ` · EK ${state.objectivesCompleted}/${state.objectivesTotal}` : "";
-    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal}${optional} · ${state.state}${result}`;
+    this.intelEl.textContent = `INTEL ${state.intelFound}/${state.intelTotal}${optional} · İÇGÜDÜ ${state.fieldInstinctRemaining}/3 · ${state.state}${result}`;
   }
 
   private buildWorld(): void {
@@ -1199,6 +1380,22 @@ export class GameRuntime {
     const workerMarker = this.box("worker-route-intel", new Vector3(-2.8, 1.1, 8.2), new Vector3(0.3, 2.1, 0.3), metal, false);
     workerMarker.visibility = 0.02;
     workerMarker.metadata = { intelId: "market_worker_route", label: "ÇALIŞAN RUTİNİ" } satisfies GameMetadata;
+
+    // Authored Spycraft 2.0 observation sources. They are deliberately subtle
+    // world markers, not floating collectibles; eligibility still requires
+    // range, facing and a clear ray in updateObservation().
+    const spycraftSource = this.material("spycraft-source", new Color3(0.16, 0.28, 0.24), 0.62, 0.14);
+    for (const node of OBSERVATION_NODES) {
+      const source = this.box(
+        `spycraft-observation-${node.id}`,
+        new Vector3(node.position.x, node.position.y, node.position.z),
+        new Vector3(0.22, 0.32, 0.22),
+        spycraftSource,
+        false,
+      );
+      source.visibility = 0.055;
+      source.metadata = { spycraftObservationId: node.id, label: node.label } satisfies GameMetadata;
+    }
 
     for (const x of [-8.5, 8.5]) {
       const planter = this.box(`planter-${x}`, new Vector3(x, 0.38, -0.5), new Vector3(1.35, 0.72, 1.35), concrete, true);

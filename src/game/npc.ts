@@ -859,8 +859,8 @@ export class NpcSystem {
    * player, and unsettled but not committed. Returns null when nobody
    * qualifies. Reuses the sensing results already computed this frame.
    */
-  socialCheckTarget(playerPosition: Vector3): { index: number; name: string } | null {
-    let best: { index: number; name: string } | null = null;
+  socialCheckTarget(playerPosition: Vector3): { index: number; name: string; awareness: number; recentContact: boolean } | null {
+    let best: { index: number; name: string; awareness: number; recentContact: boolean } | null = null;
     let bestDistance = SOCIAL_RANGE;
     for (const [index, agent] of this.agents.entries()) {
       if (!agent.isSecurity() || !agent.hasRecentContact()) continue;
@@ -870,7 +870,7 @@ export class NpcSystem {
       const distance = Vector3.Distance(agent.root.position, playerPosition);
       if (distance > bestDistance) continue;
       bestDistance = distance;
-      best = { index, name: agent.name() };
+      best = { index, name: agent.name(), awareness: agent.awarenessMeter(), recentContact: agent.hasRecentContact() };
     }
     return best;
   }

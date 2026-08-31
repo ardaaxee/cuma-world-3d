@@ -103,8 +103,9 @@ export class MissionFeedback {
   /** Styling hook, kept coarse so the CSS does not need one rule per cue. */
   private kindFor(cue: PresentationCue): string {
     if (cue === "FACILITY_SEARCH" || cue === "FACILITY_HIGH_ALERT" || cue === "FACILITY_WATCH") return "AWARENESS";
-    if (cue === "INTEL_DISCOVERED" || cue === "OPTIONAL_COMPLETED") return "INTEL";
-    if (cue === "OPPORTUNITY_USED" || cue === "GADGET_READY") return "OPPORTUNITY";
+    if (cue === "INTEL_DISCOVERED" || cue === "OPTIONAL_COMPLETED" || cue === "SPYCRAFT_INTEL") return "INTEL";
+    if (cue === "OPPORTUNITY_USED" || cue === "GADGET_READY" || cue === "SPYCRAFT_OPPORTUNITY" || cue === "SPYCRAFT_BLUFF") return "OPPORTUNITY";
+    if (cue === "SPYCRAFT_SOCIAL") return "AWARENESS";
     return "OBJECTIVE";
   }
 

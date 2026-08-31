@@ -1,4 +1,5 @@
 import type { MissionResolutionId, OperationStep, OptionalObjectiveId, OpportunityId } from "./mission-graph";
+import type { StoredSpycraft } from "./spycraft";
 import type { StoredRunTelemetry } from "./run-telemetry";
 
 /**
@@ -38,6 +39,8 @@ export interface StoredMission {
    * still parses and simply reports no measured time.
    */
   telemetry?: StoredRunTelemetry;
+  /** Spycraft 2.0: optional so all pre-Spycraft saves remain valid. */
+  spycraft?: StoredSpycraft;
 }
 
 export function readStoredMission(): Partial<StoredMission> | null {
@@ -73,6 +76,7 @@ export function resetMissionProgress(): void {
   document.body.dataset.route = "none";
   document.body.dataset.operationStep = "none";
   document.body.dataset.intel = "";
+  document.body.dataset.spycraft = "";
 }
 
 /**

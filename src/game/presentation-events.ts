@@ -24,7 +24,11 @@ export type PresentationCue =
   | "FACILITY_WATCH"
   | "FACILITY_SEARCH"
   | "FACILITY_HIGH_ALERT"
-  | "GADGET_READY";
+  | "GADGET_READY"
+  | "SPYCRAFT_INTEL"
+  | "SPYCRAFT_OPPORTUNITY"
+  | "SPYCRAFT_SOCIAL"
+  | "SPYCRAFT_BLUFF";
 
 export interface PresentationEvent {
   readonly cue: PresentationCue;
@@ -50,6 +54,10 @@ const CUE_WEIGHT: Record<PresentationCue, PresentationWeight> = {
   FACILITY_SEARCH: "STRONG",
   FACILITY_HIGH_ALERT: "CRITICAL",
   GADGET_READY: "SUBTLE",
+  SPYCRAFT_INTEL: "SUBTLE",
+  SPYCRAFT_OPPORTUNITY: "SUBTLE",
+  SPYCRAFT_SOCIAL: "NORMAL",
+  SPYCRAFT_BLUFF: "SUBTLE",
 };
 
 export function presentationWeight(cue: PresentationCue): PresentationWeight {

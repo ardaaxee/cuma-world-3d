@@ -1,3 +1,5 @@
+import type { SpycraftFactId } from "./spycraft";
+
 /**
  * The Fresh Market operation, as data.
  *
@@ -36,6 +38,8 @@ export interface MissionResolution {
   readonly label: string;
   /** Earned intel that makes this resolution valid at all. */
   readonly requiresIntel?: IntelId;
+  /** Optional Spycraft 2.0 alternate gate; the original route stays valid. */
+  readonly spycraftFact?: SpycraftFactId;
 }
 
 export interface MissionStage {
@@ -64,6 +68,8 @@ export interface Opportunity {
   readonly score: number;
   readonly requiresIntel?: IntelId;
   readonly requiresObjective?: OptionalObjectiveId;
+  /** Earned field observation can unlock this existing M05 opportunity. */
+  readonly spycraftFact?: SpycraftFactId;
   /** False for repeatable opportunities; all three are currently one-shot. */
   readonly oncePerRun: boolean;
 }
@@ -118,6 +124,7 @@ const RESOLUTIONS: Record<MissionResolutionId, MissionResolution> = {
     stage: "MANIFEST",
     label: "YÜKLEME STOK DEFTERİ",
     requiresIntel: "market_worker_route",
+    spycraftFact: "service_access_pattern",
   },
   verify_counter: {
     id: "verify_counter",
@@ -152,6 +159,7 @@ const OPPORTUNITIES: Record<OpportunityId, Opportunity> = {
     label: "CCTV BESLEMESİ DEVRE DIŞI",
     score: 6,
     requiresIntel: "market_camera",
+    spycraftFact: "monitoring_shift_gap",
     oncePerRun: true,
   },
   staff_routine_window: {
@@ -159,6 +167,7 @@ const OPPORTUNITIES: Record<OpportunityId, Opportunity> = {
     label: "PERSONEL RUTİN ARALIĞI",
     score: 6,
     requiresObjective: "shift_pattern",
+    spycraftFact: "staff_break_window",
     oncePerRun: true,
   },
   delivery_cart: {
@@ -166,6 +175,7 @@ const OPPORTUNITIES: Record<OpportunityId, Opportunity> = {
     label: "SEVKİYAT ARABASI SİPERİ",
     score: 6,
     requiresIntel: "market_worker_route",
+    spycraftFact: "delivery_rotation",
     oncePerRun: true,
   },
 };

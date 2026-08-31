@@ -6,6 +6,7 @@ import type {
   OpportunityId,
 } from "./mission-graph";
 import type { TelemetryFacilityState } from "./run-telemetry";
+import type { SpycraftFactId } from "./spycraft";
 
 /**
  * The immutable snapshot a finished run produces.
@@ -50,6 +51,9 @@ export interface MissionResult {
   readonly searchSeconds?: number;
   readonly highAlertSeconds?: number;
   readonly maxFacilityState?: TelemetryFacilityState;
+  /** Spycraft 2.0 additions are optional for old result consumers. */
+  readonly spycraftFacts?: readonly SpycraftFactId[];
+  readonly fieldInstinctRemaining?: number;
 }
 
 export const MISSION_RESULT_EVENT = "cuma-mission-result";

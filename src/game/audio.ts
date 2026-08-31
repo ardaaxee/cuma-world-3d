@@ -69,6 +69,10 @@ const PRESENTATION_TONES: Record<PresentationCue, ToneShape> = {
   FACILITY_SEARCH: { startHz: 315, endHz: 250, duration: 0.13, gain: 0.032, type: "triangle" },
   FACILITY_HIGH_ALERT: { startHz: 220, endHz: 165, duration: 0.18, gain: 0.04, type: "triangle" },
   GADGET_READY: { startHz: 700, endHz: 932, duration: 0.09, gain: 0.026, type: "sine" },
+  SPYCRAFT_INTEL: { startHz: 690, endHz: 980, duration: 0.14, gain: 0.034, type: "sine" },
+  SPYCRAFT_OPPORTUNITY: { startHz: 470, endHz: 690, duration: 0.16, gain: 0.032, type: "triangle" },
+  SPYCRAFT_SOCIAL: { startHz: 310, endHz: 390, duration: 0.11, gain: 0.026, type: "sine" },
+  SPYCRAFT_BLUFF: { startHz: 540, endHz: 760, duration: 0.12, gain: 0.03, type: "sine" },
 };
 
 /** Which cues duck the ambience bed briefly. */
