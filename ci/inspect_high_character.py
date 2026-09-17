@@ -2,24 +2,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import json
+from glb_validation import read_glb_document
 
 ROOT = Path(__file__).resolve().parents[1] / "game"
 GLB = ROOT / "assets" / "characters" / "cuma_high.glb"
 
 
 def read_document(data: bytes) -> dict:
-    if data[:4] != b"glTF" or int.from_bytes(data[4:8], "little") != 2:
-        raise SystemExit("CUMA_HIGH_GLTF: invalid GLB")
-    offset = 12
-    while offset + 8 <= len(data):
-        length = int.from_bytes(data[offset:offset + 4], "little")
-        kind = data[offset + 4:offset + 8]
-        payload = data[offset + 8:offset + 8 + length]
-        if kind == b"JSON":
-            return json.loads(payload.rstrip(b" \t\r\n\0").decode("utf-8"))
-        offset += 8 + length
-    raise SystemExit("CUMA_HIGH_GLTF: JSON chunk not found")
+    return read_glb_document(data)
 
 
 def main() -> None:

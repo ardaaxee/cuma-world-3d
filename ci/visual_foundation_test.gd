@@ -25,5 +25,22 @@ func _run() -> void:
 	assert(material.uv1_triplanar and material.uv1_world_triplanar)
 	assert(material.albedo_texture != null and material.normal_texture != null)
 	builder.free()
+	var bevel = load("res://scripts/world/beveled_box.gd")
+	for size in [Vector3(2.0, 0.1, 1.0), Vector3(0.07, 2.0, 0.08), Vector3.ONE]:
+		var mesh = bevel.create(size)
+		assert(mesh == bevel.create(size), "Mesh cache must reuse equal dimensions")
+		assert((mesh.get_aabb().size - size).length() < 0.0001, "Bevel changed furniture dimensions")
+		var arrays = mesh.surface_get_arrays(0)
+		var vertices = arrays[Mesh.ARRAY_VERTEX]
+		var normals = arrays[Mesh.ARRAY_NORMAL]
+		var indices = arrays[Mesh.ARRAY_INDEX]
+		assert(indices.size() == 324, "Unexpected bevel triangle budget")
+		for j in range(0, indices.size(), 3):
+			var a = indices[j]
+			var b = indices[j + 1]
+			var c = indices[j + 2]
+			var cross_product = (vertices[b] - vertices[a]).cross(vertices[c] - vertices[a])
+			assert(cross_product.length() > 0.00000001, "Degenerate bevel triangle")
+			assert(cross_product.dot(normals[a] + normals[b] + normals[c]) < 0.0, "Inverted bevel face")
 	print("CUMA VISUAL FOUNDATION RUNTIME: PASS")
 	quit()

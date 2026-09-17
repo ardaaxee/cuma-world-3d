@@ -4,6 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 import hashlib
 import urllib.request
+import os
+import tempfile
+from glb_validation import read_glb_document
 
 ROOT = Path(__file__).resolve().parents[1] / "game"
 TARGET = ROOT / "assets" / "characters" / "cuma_high.glb"
@@ -36,7 +39,20 @@ def main() -> None:
     if data[:4] != b"glTF":
         raise SystemExit("CUMA_HIGH_INSTALL: downloaded file is not GLB")
 
-    TARGET.write_bytes(data)
+    read_glb_document(data)
+    # Never replace a valid asset with a partial write.
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=TARGET.parent, suffix=".part", delete=False) as stream:
+            temporary = Path(stream.name)
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        read_glb_document(temporary.read_bytes())
+        temporary.replace(TARGET)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     LICENSE.write_text(
         "CUMA WORLD high-detail character candidate\n"
         "Asset: suited.glb (MakeHuman / MPFB 2)\n"

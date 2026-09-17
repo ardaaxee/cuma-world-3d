@@ -26,7 +26,12 @@ def main():
             '\t\t"MEDIUM": set_quality("HIGH")\n\t\t"HIGH": set_quality("ULTRA")\n\t\t_: set_quality("LOW")')
     shutil.copyfile(BASE / "ci/overlays/visual/graphics_manager.gd",
                     ROOT / "scripts/graphics_manager.gd")
+    shutil.copyfile(BASE / "ci/overlays/visual/beveled_box.gd",
+                    ROOT / "scripts/world/beveled_box.gd")
     material = ROOT / "scripts/world/production_home_builder.gd"
+    replace(material, "extends Node\n", 'extends Node\n\nconst BeveledBox = preload("res://scripts/world/beveled_box.gd")\n')
+    replace(material, '\tvar mesh = BoxMesh.new()\n\tmesh.size = size\n\tmi.mesh = mesh',
+            '\t# Keep thin trim/rugs cheap; furniture gets a small light-catching bevel.\n\tif minf(size.x, minf(size.y, size.z)) >= 0.07:\n\t\tmi.mesh = BeveledBox.create(size)\n\telse:\n\t\tvar mesh = BoxMesh.new()\n\t\tmesh.size = size\n\t\tmi.mesh = mesh')
     replace(material,
             '\tmat.uv1_scale = Vector3(uv_scale, uv_scale, uv_scale)\n\treturn mat',
             '''\t# Static home surfaces use metre-based projection instead of stretched box UVs.

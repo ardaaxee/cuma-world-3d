@@ -37,9 +37,13 @@ godot --headless --path game --quit-after 120
 Locally verified with Godot 4.7.2: all four quality transitions and wraparound,
 invalid-input rejection, viewport state, and production material texture loading.
 Existing performance regression, material API regression and APK preflight checks passed.
-Startup reached CUMA_BOOT_READY. Full asset import is not clean: the existing
-`assets/characters/cuma_high.glb` reports a corrupt chunk. Shutdown also reports one
-resource still in use. These are not fixed or hidden by this patch.
+Startup reached CUMA_BOOT_READY. The initially observed corrupt character was a truncated
+local copy (2,097,152 bytes instead of 6,675,064). Reinstalling the pinned, hash-verified
+asset restored a clean import. This does not establish that the upstream asset is corrupt.
+The installer now validates the whole GLB and replaces the target atomically. The inspector
+rejects incomplete binary chunks even when JSON metadata remains readable. Five regression
+cases cover valid input, truncation, forged total length, out-of-bounds bufferViews and trailing data.
+Shutdown still reports one resource in use; that separate issue is not fixed here.
 No rendered before/after comparison, APK export, or physical device benchmark was performed.
 
 Next art milestone: curated detailed furniture/architecture meshes, bevels and authored
@@ -49,3 +53,17 @@ These code changes alone do not constitute photorealism.
 API references:
 - https://docs.godotengine.org/en/stable/classes/class_viewport.html
 - https://docs.godotengine.org/en/stable/classes/class_basematerial3d.html
+
+## Furniture edge pass
+
+Production furniture panels at least 7 cm thick now use a cached beveled mesh, with up to
+12 mm edge radius clamped to panel thickness. Thin trim and rugs retain their original boxes.
+Outer dimensions, placement and collision remain unchanged. Each beveled panel is 108
+triangles, one surface/draw call; equal dimensions share one mesh. This is a modest geometric
+edge treatment, not an authored high-detail furniture replacement.
+Runtime tests verify dimensions, clockwise face winding, no degenerate triangles and mesh reuse.
+
+Visual Audit now runs on pull requests and checks the new runtime and GLB regressions before
+capturing rooms and the high-detail character. Import failures now fail the gate explicitly.
+Local graphical capture is unavailable because this executor cannot open X display sockets;
+headless import and geometry tests passed, but appearance still requires the CI images.
