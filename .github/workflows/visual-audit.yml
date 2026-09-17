@@ -2,6 +2,11 @@ name: CUMA WORLD Visual Audit
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'CUMA_WORLD_3D_GitHub_APK_Autobuild_2.1.1.zip'
+      - 'ci/**'
+      - '.github/workflows/visual-audit.yml'
   push:
     branches: [ main ]
     paths:
@@ -47,6 +52,11 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install patch dependencies and validate GLB guardrails
+        run: |
+          python -m pip install --disable-pip-version-check --no-cache-dir Pillow
+          python ci/test_glb_validation.py
+
       - name: Apply production source patches
         shell: bash
         run: |
@@ -74,10 +84,22 @@ jobs:
         run: |
           set -euxo pipefail
           "$GODOT_BIN" --headless --path game --editor --quit 2>&1 | tee /tmp/visual-import.log
-          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/visual-import.log; then
-            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR' /tmp/visual-import.log || true
+          if grep -Eiq 'Parse Error|Failed to load script|SCRIPT ERROR|Error importing|ERR_FILE_CORRUPT' /tmp/visual-import.log; then
+            grep -Ein 'Parse Error|Failed to load script|SCRIPT ERROR|Error importing|ERR_FILE_CORRUPT' /tmp/visual-import.log || true
             exit 1
           fi
+
+      - name: Verify quality profiles and bevel geometry
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp ci/visual_foundation_test.gd game/ci_visual_foundation_test.gd
+          timeout 60 "$GODOT_BIN" --headless --path game --script res://ci_visual_foundation_test.gd 2>&1 | tee /tmp/visual-foundation-test.log
+          grep -q 'CUMA VISUAL FOUNDATION RUNTIME: PASS' /tmp/visual-foundation-test.log
+          if grep -Eiq 'SCRIPT ERROR|Parse Error' /tmp/visual-foundation-test.log; then
+            exit 1
+          fi
+          rm game/ci_visual_foundation_test.gd
 
       - name: Prepare software rendering
         shell: bash
@@ -164,7 +186,7 @@ jobs:
           retention-days: 14
 
       - name: Report visual audit success
-        if: success()
+        if: success() && github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,6 +203,7 @@ jobs:
           name: CUMA-WORLD-visual-diagnostics-${{ github.run_number }}
           path: |
             /tmp/visual-import.log
+            /tmp/visual-foundation-test.log
             /tmp/visual-capture.log
             /tmp/visual-metrics.log
             /tmp/character-capture.log
@@ -189,7 +212,7 @@ jobs:
           retention-days: 7
 
       - name: Report visual audit failure
-        if: failure()
+        if: failure() && github.event_name != 'pull_request'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

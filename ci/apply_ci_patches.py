@@ -273,6 +273,7 @@ func _apply_architecture_materials() -> void:''',
         "remove overlapping ProductionHome21 kitchen island slab",
     )
 
+    subprocess.run([sys.executable, str(Path(__file__).with_name("apply_visual_foundation.py"))], check=True)
     checker = Path(__file__).with_name("runtime_contract_check.py")
     subprocess.run([sys.executable, str(checker)], check=True)
     print("CI patch layer complete.")
